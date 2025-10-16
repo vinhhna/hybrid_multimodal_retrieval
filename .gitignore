@@ -1,0 +1,47 @@
+# Virtual Environment
+venv/
+.venv/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Flickr30K Dataset (large files - do not commit)
+data/
+data/images/
+data/*.csv
+data/*.token
+*.jpg
+*.jpeg
+*.png
+
+# Downloaded archives
+*.zip
+*.tar
+*.tar.gz
+*.rar
+archive/
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+*/.ipynb_checkpoints/
+
+# Model files (if you train models later)
+*.pth
+*.pt
+*.h5
+*.ckpt
+models/
+
+# Logs and outputs
+logs/
+runs/
+outputs/
+*.log
+
+# OS specific
+.DS_Store
+Thumbs.db
+desktop.ini
