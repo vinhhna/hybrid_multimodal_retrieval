@@ -1,0 +1,56 @@
+# Flickr30K Dataset Configuration
+
+# Data paths
+data:
+  data_dir: "data"
+  images_dir: "data/images"
+  captions_file: "data/results.csv"
+
+# Dataset parameters
+dataset:
+  name: "Flickr30K"
+  num_images: 31000
+  captions_per_image: 5
+  image_format: "jpg"
+
+# Visualization settings
+visualization:
+  default_figsize: [10, 8]
+  dpi: 100
+  random_seed: 42
+  max_samples: 3
+
+# Feature extraction (for future use)
+features:
+  visual:
+    model: "resnet50"  # or "clip", "vit"
+    pretrained: true
+    feature_dim: 2048
+  
+  text:
+    model: "sentence-transformers/all-MiniLM-L6-v2"
+    max_length: 128
+    feature_dim: 384
+
+# Retrieval settings (for future use)
+retrieval:
+  top_k: 10
+  similarity_metric: "cosine"  # or "euclidean"
+  fusion_method: "weighted_sum"  # or "concatenation"
+  visual_weight: 0.5
+  text_weight: 0.5
+
+# Training settings (for future use)
+training:
+  batch_size: 64
+  learning_rate: 0.001
+  epochs: 50
+  optimizer: "adam"
+  device: "cuda"  # or "cpu"
+  checkpoint_dir: "checkpoints"
+
+# Logging
+logging:
+  level: "INFO"
+  save_logs: true
+  log_dir: "logs"
