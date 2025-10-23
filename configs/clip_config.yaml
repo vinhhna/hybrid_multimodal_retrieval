@@ -1,0 +1,24 @@
+# CLIP Model Configuration
+# Used for bi-encoder embedding generation in Phase 2
+
+model:
+  name: 'ViT-B-32'              # CLIP model variant
+  pretrained: 'openai'          # Pretrained weights source
+  device: 'auto'                # 'cuda', 'cpu', or 'auto' for auto-detection
+
+encoding:
+  image_batch_size: 32          # Batch size for image encoding
+  text_batch_size: 64           # Batch size for text encoding
+  normalize: true               # L2-normalize embeddings
+  show_progress: true           # Show progress bars
+
+paths:
+  embeddings_dir: 'data/embeddings'
+  image_embeddings: 'data/embeddings/image_embeddings.npy'
+  text_embeddings: 'data/embeddings/text_embeddings.npy'
+  image_metadata: 'data/embeddings/image_metadata.json'
+  text_metadata: 'data/embeddings/text_metadata.json'
+
+dataset:
+  images_dir: 'data/images'
+  captions_file: 'data/results.csv'
