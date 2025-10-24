@@ -8,5 +8,6 @@ This module contains components for:
 """
 
 from .bi_encoder import BiEncoder
+from .faiss_index import FAISSIndex
 
-__all__ = ['BiEncoder']
+__all__ = ['BiEncoder', 'FAISSIndex']

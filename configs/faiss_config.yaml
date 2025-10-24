@@ -1,0 +1,45 @@
+# FAISS Index Configuration
+
+index:
+  # Index type: 'flat' (exact), 'ivf' (approximate), 'hnsw' (graph-based)
+  type: 'flat'
+  
+  # Distance metric: 'cosine' or 'euclidean'
+  metric: 'cosine'
+  
+  # Dimension (must match embeddings)
+  dimension: 512
+
+# IVF-specific parameters (if type='ivf')
+ivf:
+  # Number of clusters (typically sqrt(n) to n/100)
+  nlist: 100
+  
+  # Number of clusters to search (1-nlist, higher = more accurate but slower)
+  nprobe: 10
+
+# HNSW-specific parameters (if type='hnsw')
+hnsw:
+  # Number of connections per layer (16-64)
+  m: 32
+  
+  # Size of dynamic candidate list (higher = better quality but slower)
+  ef_construction: 200
+  
+  # Size of search candidate list
+  ef_search: 50
+
+# Paths
+paths:
+  image_index: 'data/indices/image_index.faiss'
+  text_index: 'data/indices/text_index.faiss'
+  image_index_metadata: 'data/indices/image_index.json'
+  text_index_metadata: 'data/indices/text_index.json'
+
+# Search parameters
+search:
+  # Default number of results
+  top_k: 10
+  
+  # Batch size for batch search
+  batch_size: 32

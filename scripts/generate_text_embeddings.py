@@ -11,8 +11,6 @@ Usage:
 import sys
 from pathlib import Path
 import yaml
-import numpy as np
-from tqdm import tqdm
 
 # Add src to path
 project_root = Path(__file__).parent.parent
