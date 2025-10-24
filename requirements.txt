@@ -1,53 +1,139 @@
-# Core dependencies
-pandas>=2.0.0
-numpy>=1.24.0
-matplotlib>=3.7.0
-seaborn>=0.12.0
-Pillow>=10.0.0
-jupyter>=1.0.0
-pyyaml>=6.0
+# ============================================================================
+# HYBRID MULTIMODAL RETRIEVAL SYSTEM - DEPENDENCIES
+# ============================================================================
+# Last Updated: October 24, 2025
+# Current Phase: Phase 2 Complete (Bi-Encoder Retrieval)
+# Status: ✅ ACTIVE packages | 📋 PLANNED for future phases
+# ============================================================================
 
-# Deep Learning Framework
-torch>=2.0.0
-torchvision>=0.15.0
-torchaudio>=2.0.0
+# ----------------------------------------------------------------------------
+# CORE DEPENDENCIES ✅ ACTIVE
+# ----------------------------------------------------------------------------
+pandas>=2.0.0           # Data manipulation and DataFrame operations
+numpy>=1.24.0           # Numerical operations and array handling
+matplotlib>=3.7.0       # Plotting and visualization
+seaborn>=0.12.0         # Statistical visualizations
+Pillow>=10.0.0          # Image loading and processing
+jupyter>=1.0.0          # Interactive notebooks
+pyyaml>=6.0             # Configuration file parsing
 
-# Transformers and NLP
-transformers>=4.30.0
-sentence-transformers>=2.2.0
+# ----------------------------------------------------------------------------
+# DEEP LEARNING FRAMEWORK ✅ ACTIVE
+# ----------------------------------------------------------------------------
+torch>=2.0.0            # PyTorch - Deep learning framework (REQUIRED)
+torchvision>=0.15.0     # Computer vision utilities
+torchaudio>=2.0.0       # Audio processing (for completeness)
 
-# Phase 2: Bi-Encoder (CLIP + FAISS)
-open-clip-torch>=2.20.0
-ftfy>=6.1.0
-regex>=2023.0.0
-faiss-cpu>=1.7.4  # Use faiss-gpu for GPU support
+# Note: Install PyTorch with CUDA support for GPU acceleration:
+#   pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
 
-# Phase 3: Cross-Encoder (BLIP-2)
-salesforce-lavis>=1.0.0
+# ----------------------------------------------------------------------------
+# PHASE 2: BI-ENCODER RETRIEVAL ✅ COMPLETE & ACTIVE
+# ----------------------------------------------------------------------------
+# Status: Fully implemented and tested (Oct 24, 2025)
+# Performance: ~11ms search latency, 31,783 images indexed
+# ----------------------------------------------------------------------------
+open-clip-torch>=2.20.0 # CLIP model for bi-encoder embeddings (REQUIRED)
+ftfy>=6.1.0             # Text cleaning for CLIP
+regex>=2023.0.0         # Regular expressions for text processing
+faiss-cpu>=1.7.4        # Fast similarity search (REQUIRED)
+                        # Note: Use faiss-gpu for GPU-accelerated search
+                        # Current: Using CPU version for compatibility
 
-# Phase 4: Knowledge Graph
-networkx>=3.1
-# torch-geometric>=2.3.0
-# torch-scatter>=2.1.0
-# torch-sparse>=2.6.0
+# ----------------------------------------------------------------------------
+# TRANSFORMERS & NLP ✅ ACTIVE
+# ----------------------------------------------------------------------------
+transformers>=4.30.0    # Hugging Face transformers library
+sentence-transformers>=2.2.0  # Sentence embeddings (utility)
 
-# Phase 5: Generation (uncomment when needed)
-# llava
-# qwen-vl
+# ----------------------------------------------------------------------------
+# PHASE 3: CROSS-ENCODER RE-RANKING 📋 PLANNED
+# ----------------------------------------------------------------------------
+# Status: Not yet started (planned for Nov 17-30, 2025)
+# Purpose: Improve retrieval accuracy with BLIP-2 re-ranking
+# ----------------------------------------------------------------------------
+# salesforce-lavis>=1.0.0  # BLIP-2 for cross-encoder re-ranking
+                           # Uncomment when starting Phase 3
 
-# Utilities
-tqdm>=4.65.0
-scikit-learn>=1.3.0
-requests>=2.31.0
-wget>=3.2
+# ----------------------------------------------------------------------------
+# PHASE 4: KNOWLEDGE GRAPH 📋 PLANNED
+# ----------------------------------------------------------------------------
+# Status: Not yet started (planned for Dec 1-21, 2025)
+# Purpose: Graph-based context retrieval with PyTorch Geometric
+# ----------------------------------------------------------------------------
+networkx>=3.1           # Graph analysis and visualization (basic, ACTIVE)
+# torch-geometric>=2.3.0  # Graph neural networks
+# torch-scatter>=2.1.0    # Scatter operations for PyG
+# torch-sparse>=2.6.0     # Sparse tensor operations for PyG
+                          # Uncomment when starting Phase 4
 
-# Development
-ipykernel>=6.25.0
-ipywidgets>=8.0.0
-pytest>=7.3.0
-black>=23.3.0
-flake8>=6.0.0
+# ----------------------------------------------------------------------------
+# PHASE 5: MULTIMODAL GENERATION 📋 PLANNED
+# ----------------------------------------------------------------------------
+# Status: Not yet started (planned for Dec 22 - Feb 8, 2026)
+# Purpose: LLM-based answer generation from retrieved context
+# ----------------------------------------------------------------------------
+# llava                   # LLaVA multimodal LLM (option 1)
+# qwen-vl                 # Qwen-VL multimodal LLM (option 2)
+                          # Uncomment when starting Phase 5
 
-# Experiment Tracking (optional)
-tensorboard>=2.13.0
-# wandb>=0.15.0
+# ----------------------------------------------------------------------------
+# UTILITIES ✅ ACTIVE
+# ----------------------------------------------------------------------------
+tqdm>=4.65.0            # Progress bars for long-running operations
+scikit-learn>=1.3.0     # Machine learning utilities
+requests>=2.31.0        # HTTP requests
+wget>=3.2               # File downloading
+
+# ----------------------------------------------------------------------------
+# DEVELOPMENT TOOLS ✅ ACTIVE
+# ----------------------------------------------------------------------------
+ipykernel>=6.25.0       # Jupyter kernel
+ipywidgets>=8.0.0       # Interactive widgets for notebooks
+pytest>=7.3.0           # Unit testing framework
+black>=23.3.0           # Code formatter
+flake8>=6.0.0           # Linting
+
+# ----------------------------------------------------------------------------
+# EXPERIMENT TRACKING (OPTIONAL)
+# ----------------------------------------------------------------------------
+tensorboard>=2.13.0     # TensorBoard for visualization (optional)
+# wandb>=0.15.0         # Weights & Biases (optional, uncomment if needed)
+
+# ============================================================================
+# INSTALLATION INSTRUCTIONS
+# ============================================================================
+# 
+# 1. Create virtual environment:
+#    python -m venv venv
+#    .\venv\Scripts\Activate.ps1  (Windows PowerShell)
+#
+# 2. Upgrade pip:
+#    python -m pip install --upgrade pip
+#
+# 3. Install PyTorch with CUDA (for GPU):
+#    pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+#
+# 4. Install all dependencies:
+#    pip install -r requirements.txt
+#
+# 5. Install project in development mode:
+#    pip install -e .
+#
+# ============================================================================
+# CURRENT PACKAGE USAGE SUMMARY
+# ============================================================================
+# ✅ ACTIVE (Phase 1-2): 20 packages
+#    - Core: pandas, numpy, matplotlib, Pillow, jupyter, pyyaml
+#    - PyTorch: torch, torchvision, torchaudio
+#    - CLIP: open-clip-torch, ftfy, regex
+#    - FAISS: faiss-cpu
+#    - Transformers: transformers, sentence-transformers
+#    - Utils: tqdm, scikit-learn, requests, wget, networkx
+#    - Dev: ipykernel, ipywidgets, pytest, black, flake8, tensorboard
+#
+# 📋 PLANNED (Phase 3-5): 6 packages
+#    - Phase 3: salesforce-lavis (BLIP-2)
+#    - Phase 4: torch-geometric, torch-scatter, torch-sparse
+#    - Phase 5: llava or qwen-vl
+# ============================================================================

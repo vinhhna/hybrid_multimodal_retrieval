@@ -9,5 +9,6 @@ This module contains components for:
 
 from .bi_encoder import BiEncoder
 from .faiss_index import FAISSIndex
+from .search_engine import MultimodalSearchEngine, SearchResult
 
-__all__ = ['BiEncoder', 'FAISSIndex']
+__all__ = ['BiEncoder', 'FAISSIndex', 'MultimodalSearchEngine', 'SearchResult']
