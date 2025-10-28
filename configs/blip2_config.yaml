@@ -1,0 +1,61 @@
+# BLIP-2 Cross-Encoder Configuration
+# Phase 3: Cross-Encoder Reranking
+# Created: October 28, 2025
+
+# Model configuration
+model:
+  name: "blip2"
+  # Available models:
+  # - Salesforce/blip2-opt-2.7b (lighter, faster)
+  # - Salesforce/blip2-opt-6.7b (balanced)
+  # - Salesforce/blip2-flan-t5-xl (best quality)
+  pretrained: "Salesforce/blip2-opt-2.7b"
+  device: "cuda"  # or "cpu" for fallback
+  cache_dir: "models/blip2"  # Local cache for model weights
+
+# Scoring parameters
+scoring:
+  batch_size: 8  # Adjust based on GPU memory (RTX 3050: 4-8 recommended)
+  max_text_length: 77  # Maximum text tokens
+  temperature: 1.0  # Temperature for score calibration
+  use_prompt: true  # Use task-specific prompts
+  prompt_template: "Question: Is this image about '{query}'? Answer:"
+
+# Reranking configuration
+reranking:
+  rerank_top_k: 100  # Number of bi-encoder results to rerank
+  return_k: 10  # Final number of results to return
+  score_aggregation: "mean"  # How to aggregate scores: mean, max, min
+  normalize_scores: true  # Normalize scores to [0, 1]
+
+# Optimization settings
+optimization:
+  use_fp16: true  # Mixed precision for memory efficiency
+  use_gradient_checkpointing: false  # Enable if OOM (slower but saves memory)
+  num_workers: 4  # DataLoader workers
+  pin_memory: true  # Pin memory for faster GPU transfer
+  prefetch_factor: 2  # Prefetch batches
+
+# Memory management
+memory:
+  max_batch_size: 16  # Maximum batch size before OOM
+  fallback_batch_size: 4  # Batch size if OOM occurs
+  min_batch_size: 1  # Minimum batch size
+  clear_cache_after_batch: true  # Clear CUDA cache after each batch
+  enable_auto_batch_size: true  # Automatically find optimal batch size
+
+# Performance settings
+performance:
+  compile_model: false  # Use torch.compile (PyTorch 2.0+)
+  use_bettertransformer: false  # Use BetterTransformer optimization
+  
+# Paths
+paths:
+  model_cache: "models/blip2"
+  results_cache: "data/blip2_scores"  # Cache scored results
+
+# Logging
+logging:
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR
+  log_scores: false  # Log individual scores (verbose)
+  save_results: true  # Save scoring results to disk
