@@ -7,9 +7,13 @@ Install with: pip install -e .
 from setuptools import setup, find_packages
 from pathlib import Path
 
-# Read the README file
+# Read the README file with error handling
 readme_file = Path(__file__).parent / "README.md"
-long_description = readme_file.read_text(encoding="utf-8") if readme_file.exists() else ""
+try:
+    long_description = readme_file.read_text(encoding="utf-8") if readme_file.exists() else ""
+except (UnicodeDecodeError, OSError):
+    # Fallback if README can't be read (e.g., encoding issues, permission errors)
+    long_description = "A package for hybrid multimodal retrieval using Flickr30K dataset"
 
 setup(
     name="flickr30k",

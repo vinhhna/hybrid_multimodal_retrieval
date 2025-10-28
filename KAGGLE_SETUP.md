@@ -363,7 +363,18 @@ encoder.score_pairs(queries, images, batch_size=2)  # or 1
 !ls /kaggle/input/flickr30k/
 ```
 
-### 4. Model download slow
+### 4. "UnicodeDecodeError in setup.py"
+If you get encoding errors during `pip install -e .`:
+```python
+# Option 1: Install without editable mode
+!pip install .
+
+# Option 2: Install dependencies manually
+!pip install transformers accelerate torch torchvision
+# Then just use the code directly without installing
+```
+
+### 5. Model download slow
 First run will download ~5GB model from Hugging Face. Be patient (~5-10 minutes).
 
 ---
