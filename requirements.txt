@@ -133,7 +133,7 @@ tensorboard>=2.13.0     # TensorBoard for visualization (optional)
 #    - Dev: ipykernel, ipywidgets, pytest, black, flake8, tensorboard
 #
 # 📋 PLANNED (Phase 3-5): 6 packages
-#    - Phase 3: salesforce-lavis (BLIP-2)
+#    - Phase 3: transformers (BLIP-2 from Hugging Face)
 #    - Phase 4: torch-geometric, torch-scatter, torch-sparse
 #    - Phase 5: llava or qwen-vl
 # ============================================================================

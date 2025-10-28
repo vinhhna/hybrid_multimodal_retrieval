@@ -6,6 +6,7 @@ Tests model loading, scoring, batch processing, and error handling.
 
 Phase 3: Cross-Encoder Reranking
 Created: October 28, 2025
+Updated: October 28, 2025 (Switched to Hugging Face transformers)
 
 Usage:
     python scripts/test_blip2.py
@@ -58,8 +59,7 @@ class BLIP2Tester:
         
         try:
             self.encoder = CrossEncoder(
-                model_name='blip2_opt',
-                model_type='pretrain_opt2.7b'
+                model_name='Salesforce/blip2-opt-2.7b'
             )
             
             # Check device

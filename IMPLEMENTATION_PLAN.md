@@ -602,7 +602,9 @@ pip install -r requirements.txt
 pip install transformers clip-by-openai faiss-cpu
 
 # Phase 3:
-pip install salesforce-lavis  # For BLIP-2
+```bash
+pip install transformers accelerate  # For BLIP-2 from Hugging Face
+```
 
 # Phase 4:
 pip install torch-geometric
@@ -635,7 +637,8 @@ faiss-cpu>=1.7.4  # or faiss-gpu for GPU support
 sentence-transformers>=2.2.0
 
 # Phase 3: Cross-Encoder
-salesforce-lavis>=1.0.0
+transformers>=4.30.0
+accelerate>=0.20.0
 
 # Phase 4: Knowledge Graph
 torch-geometric>=2.3.0
@@ -888,7 +891,7 @@ You have completed Phase 2 early! Choose your path:
 
 **Option A: Start Phase 3 Early (Cross-Encoder)**
 1. Research BLIP-2 model and architecture
-2. Install salesforce-lavis dependencies
+2. Install transformers and accelerate dependencies
 3. Test BLIP-2 on sample image-text pairs
 4. Begin implementing re-ranking pipeline
 

@@ -8,6 +8,7 @@ interaction and better accuracy.
 
 Phase 3: Cross-Encoder Reranking
 Created: October 28, 2025
+Updated: October 28, 2025 (Switched to Hugging Face transformers)
 """
 
 import torch
@@ -20,10 +21,10 @@ import yaml
 import logging
 
 try:
-    from lavis.models import load_model_and_preprocess
+    from transformers import Blip2Processor, Blip2ForConditionalGeneration
 except ImportError:
     raise ImportError(
-        "salesforce-lavis not found. Install with: pip install salesforce-lavis"
+        "transformers not found. Install with: pip install transformers"
     )
 
 
@@ -34,25 +35,25 @@ class CrossEncoder:
     This class provides functionality to score image-text pairs with deep
     interaction, enabling accurate reranking of retrieval results.
     
+    Uses Hugging Face transformers implementation of BLIP-2.
+    
     Attributes:
-        model: BLIP-2 model instance
-        vis_processors: Image preprocessing pipelines
-        txt_processors: Text preprocessing pipelines
+        model: BLIP-2 model instance (Hugging Face)
+        processor: BLIP-2 processor for image/text preprocessing
         device: torch.device for computation
         config: Configuration dictionary
         batch_size: Default batch size for processing
         use_fp16: Whether to use mixed precision
     
     Example:
-        >>> encoder = CrossEncoder(model_name='blip2_opt')
+        >>> encoder = CrossEncoder()
         >>> score = encoder.score_pair("A dog playing", image_path)
         >>> scores = encoder.score_pairs(queries, images, batch_size=8)
     """
     
     def __init__(
         self,
-        model_name: str = 'blip2_opt',
-        model_type: str = 'pretrain_opt2.7b',
+        model_name: str = 'Salesforce/blip2-opt-2.7b',
         config_path: Optional[Union[str, Path]] = None,
         device: Optional[Union[str, torch.device]] = None,
         use_fp16: bool = True
@@ -61,14 +62,14 @@ class CrossEncoder:
         Initialize BLIP-2 cross-encoder.
         
         Args:
-            model_name: BLIP-2 model name ('blip2_opt', 'blip2_t5')
-            model_type: Model variant (e.g., 'pretrain_opt2.7b')
+            model_name: Hugging Face model ID (default: 'Salesforce/blip2-opt-2.7b')
+                       Options: 'Salesforce/blip2-opt-2.7b', 'Salesforce/blip2-flan-t5-xl'
             config_path: Path to YAML config file
             device: Device to use ('cuda', 'cpu', or torch.device)
             use_fp16: Use mixed precision (FP16) for efficiency
         """
         self.logger = logging.getLogger(__name__)
-        self.logger.info("Initializing BLIP-2 Cross-Encoder...")
+        self.logger.info("Initializing BLIP-2 Cross-Encoder (Hugging Face)...")
         
         # Load configuration
         self.config = self._load_config(config_path)
@@ -79,19 +80,18 @@ class CrossEncoder:
         self.device = torch.device(device)
         self.logger.info(f"Using device: {self.device}")
         
-        # Load BLIP-2 model
-        self.logger.info(f"Loading BLIP-2 model: {model_name} ({model_type})")
-        self.model, self.vis_processors, self.txt_processors = load_model_and_preprocess(
-            name=model_name,
-            model_type=model_type,
-            is_eval=True,
-            device=self.device
+        # Load BLIP-2 model from Hugging Face
+        self.logger.info(f"Loading BLIP-2 model from Hugging Face: {model_name}")
+        self.processor = Blip2Processor.from_pretrained(model_name)
+        self.model = Blip2ForConditionalGeneration.from_pretrained(
+            model_name,
+            torch_dtype=torch.float16 if use_fp16 and self.device.type == 'cuda' else torch.float32
         )
+        self.model.to(self.device)
         
         # Model configuration
         self.use_fp16 = use_fp16 and self.device.type == 'cuda'
         if self.use_fp16:
-            self.model = self.model.half()
             self.logger.info("Using FP16 mixed precision")
         
         self.model.eval()
@@ -274,58 +274,34 @@ class CrossEncoder:
         images: List[Union[str, Path, Image.Image]]
     ) -> List[float]:
         """
-        Score text-image pairs using BLIP-2.
+        Score text-image pairs using BLIP-2 (Hugging Face).
+        
+        Uses question-answering format to get interpretable similarity scores
+        based on yes/no probability from BLIP-2's language model.
         
         Args:
             texts: List of text queries
             images: List of images (paths or PIL Images)
         
         Returns:
-            List of relevance scores
+            List of relevance scores in [0, 1] range
         """
-        # Load and preprocess images
-        processed_images = []
+        # Load images
+        pil_images = []
         for img in images:
             if isinstance(img, (str, Path)):
                 img = Image.open(img).convert('RGB')
             elif not isinstance(img, Image.Image):
                 raise TypeError(f"Expected PIL Image, str, or Path, got {type(img)}")
-            
-            # Preprocess image
-            img_tensor = self.vis_processors["eval"](img).unsqueeze(0).to(self.device)
-            if self.use_fp16:
-                img_tensor = img_tensor.half()
-            processed_images.append(img_tensor)
+            pil_images.append(img)
         
-        # Stack images
-        images_tensor = torch.cat(processed_images, dim=0)
+        # Score each pair individually for better control
+        scores = []
+        for text, image in zip(texts, pil_images):
+            score = self._score_single_pair(text, image)
+            scores.append(score)
         
-        # Process texts
-        processed_texts = [self.txt_processors["eval"](text) for text in texts]
-        
-        # Generate scores using BLIP-2
-        with torch.no_grad():
-            # Use BLIP-2's image-text matching capability
-            # This uses the model's ITM (Image-Text Matching) head
-            try:
-                # For BLIP-2, we can use the model's forward method
-                # Different BLIP-2 variants may have different APIs
-                samples = {
-                    "image": images_tensor,
-                    "text_input": processed_texts
-                }
-                
-                # Get image-text matching scores
-                # This is a simplified version - actual implementation may vary
-                outputs = self.model(samples, match_head="itm")
-                scores = outputs[:, 1].cpu().numpy()  # Probability of match
-                
-            except Exception as e:
-                # Fallback: use caption generation probability as score
-                self.logger.warning(f"ITM scoring failed, using generation probability: {e}")
-                scores = self._score_via_generation(images_tensor, processed_texts)
-        
-        return scores.tolist()
+        return scores
     
     def _score_image_text_batch(
         self,
@@ -335,122 +311,72 @@ class CrossEncoder:
         """Score image-text pairs (swap of text-image)."""
         return self._score_text_image_batch(texts, images)
     
-    def _score_via_generation(
+    def _score_single_pair(
         self,
-        images_tensor: torch.Tensor,
-        texts: List[str]
-    ) -> np.ndarray:
+        text: str,
+        image: Image.Image
+    ) -> float:
         """
-        Fallback scoring using caption generation probability.
+        Score a single text-image pair using yes/no probability.
         
-        Computes the log-likelihood of each text query given the corresponding image
-        by using BLIP-2's language model to score how likely the text is as a caption
-        for the image. Higher log-likelihood indicates better match.
+        Uses BLIP-2's question-answering capability to ask:
+        "Question: Does this image show {text}? Answer:"
+        and computes P(yes) / (P(yes) + P(no)) as the similarity score.
         
         Args:
-            images_tensor: Preprocessed images tensor, shape (batch_size, C, H, W)
-            texts: List of text queries
+            text: Text query
+            image: PIL Image
         
         Returns:
-            Array of similarity scores normalized to [0, 1] range
+            Similarity score in [0, 1] range
         """
-        scores = []
-        
-        for i, text in enumerate(texts):
-            img_tensor = images_tensor[i:i+1]
+        try:
+            # Format as yes/no question
+            prompt = f"Question: Does this image show {text.lower()}? Answer:"
             
-            try:
-                # For BLIP-2, we can compute the log-likelihood of the text given the image
-                # by using the model in evaluation mode
-                
-                # Prepare text input (add prompt for better scoring)
-                # BLIP-2 works better with question-answering format
-                prompt = f"Question: Does this image show {text.lower()}? Answer:"
-                
-                # Tokenize the text
-                text_input = self.txt_processors["eval"](prompt)
-                
-                # Get image features
-                with torch.no_grad():
-                    # Extract image features using the vision encoder
-                    image_embeds = self.model.ln_vision(self.model.visual_encoder(img_tensor))
-                    image_atts = torch.ones(image_embeds.size()[:-1], dtype=torch.long).to(self.device)
-                    
-                    # Get query tokens
-                    query_tokens = self.model.query_tokens.expand(image_embeds.shape[0], -1, -1)
-                    
-                    # Get Q-Former output
-                    query_output = self.model.Qformer.bert(
-                        query_embeds=query_tokens,
-                        encoder_hidden_states=image_embeds,
-                        encoder_attention_mask=image_atts,
-                        return_dict=True,
-                    )
-                    
-                    # Project to language model space
-                    inputs_llm = self.model.llm_proj(query_output.last_hidden_state)
-                    atts_llm = torch.ones(inputs_llm.size()[:-1], dtype=torch.long).to(self.device)
-                    
-                    # Tokenize target text for scoring
-                    # Use a simple yes/no answer for scoring
-                    answer_yes = " yes"
-                    answer_no = " no"
-                    
-                    # Get logits for both answers
-                    llm_tokens_yes = self.model.llm_tokenizer(
-                        answer_yes, 
-                        return_tensors="pt"
-                    ).to(self.device)
-                    
-                    llm_tokens_no = self.model.llm_tokenizer(
-                        answer_no,
-                        return_tensors="pt"
-                    ).to(self.device)
-                    
-                    # Prepare prompt tokens
-                    prompt_tokens = self.model.llm_tokenizer(
-                        prompt,
-                        return_tensors="pt"
-                    ).to(self.device)
-                    
-                    # Concatenate image embeddings with prompt
-                    inputs_embeds = self.model.llm_model.get_input_embeddings()(prompt_tokens.input_ids)
-                    inputs_embeds = torch.cat([inputs_llm, inputs_embeds], dim=1)
-                    attention_mask = torch.cat([atts_llm, prompt_tokens.attention_mask], dim=1)
-                    
-                    # Get model outputs
-                    outputs = self.model.llm_model(
-                        inputs_embeds=inputs_embeds,
-                        attention_mask=attention_mask,
-                        return_dict=True,
-                    )
-                    
-                    # Get logits for next token prediction
-                    logits = outputs.logits[:, -1, :]  # Last token logits
-                    
-                    # Get probabilities using softmax
-                    probs = torch.nn.functional.softmax(logits, dim=-1)
-                    
-                    # Get token IDs for "yes" and "no"
-                    yes_token_id = llm_tokens_yes.input_ids[0, 1]  # Skip BOS token
-                    no_token_id = llm_tokens_no.input_ids[0, 1]
-                    
-                    # Get probabilities for yes and no
-                    prob_yes = probs[0, yes_token_id].item()
-                    prob_no = probs[0, no_token_id].item()
-                    
-                    # Score is the probability of "yes" normalized by both probabilities
-                    # This gives a score in [0, 1] range
-                    score = prob_yes / (prob_yes + prob_no) if (prob_yes + prob_no) > 0 else 0.5
-                    
-            except Exception as e:
-                # If anything fails, fall back to a neutral score
-                self.logger.warning(f"Scoring failed for text '{text[:50]}...': {e}")
-                score = 0.5
+            # Process inputs
+            inputs = self.processor(
+                images=image,
+                text=prompt,
+                return_tensors="pt"
+            ).to(self.device)
             
-            scores.append(score)
-        
-        return np.array(scores)
+            if self.use_fp16:
+                inputs = {k: v.half() if v.dtype == torch.float32 else v for k, v in inputs.items()}
+            
+            # Generate with forced yes/no answer
+            with torch.no_grad():
+                # Get model outputs without generation
+                outputs = self.model.generate(
+                    **inputs,
+                    max_new_tokens=1,
+                    output_scores=True,
+                    return_dict_in_generate=True,
+                    do_sample=False
+                )
+                
+                # Get the logits for the first generated token
+                logits = outputs.scores[0][0]  # Shape: (vocab_size,)
+                
+                # Get token IDs for "yes" and "no"
+                yes_token_id = self.processor.tokenizer.encode(" yes", add_special_tokens=False)[0]
+                no_token_id = self.processor.tokenizer.encode(" no", add_special_tokens=False)[0]
+                
+                # Get probabilities
+                probs = torch.nn.functional.softmax(logits, dim=-1)
+                prob_yes = probs[yes_token_id].item()
+                prob_no = probs[no_token_id].item()
+                
+                # Normalize to get score in [0, 1]
+                total = prob_yes + prob_no
+                score = prob_yes / total if total > 0 else 0.5
+                
+                return score
+                
+        except Exception as e:
+            self.logger.warning(f"Scoring failed for text '{text[:50]}...': {e}")
+            # Fallback: use neutral score
+            return 0.5
     
     def _handle_oom(
         self,
