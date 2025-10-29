@@ -57,32 +57,67 @@ class BLIP2Tester:
         logger.info("TEST 1: Model Loading")
         logger.info("="*60)
         
-        try:
-            self.encoder = CrossEncoder(
-                model_name='Salesforce/blip2-opt-2.7b'
-            )
-            
-            # Check device
-            device_ok = self.encoder.device.type in ['cuda', 'cpu']
-            
-            # Check model loaded
-            model_ok = self.encoder.model is not None
-            
-            # Get model info
-            info = self.encoder.get_model_info()
-            logger.info(f"Model info: {info}")
-            
-            passed = device_ok and model_ok
-            self.log_result(
-                "Model Loading",
-                passed,
-                f"Device: {self.encoder.device}, FP16: {self.encoder.use_fp16}"
-            )
-            return passed
-            
-        except Exception as e:
-            self.log_result("Model Loading", False, f"Error: {str(e)}")
-            return False
+        # Load the default model
+        model_options = [
+            ('Salesforce/blip2-flan-t5-xl', 'Default model - fits P100 16GB GPU'),
+        ]
+        
+        for model_name, description in model_options:
+            try:
+                logger.info(f"\nTrying: {model_name} ({description})")
+                
+                self.encoder = CrossEncoder(
+                    model_name=model_name,
+                    device='cuda' if torch.cuda.is_available() else 'cpu',
+                    use_fp16=True  # Always use FP16 to save memory
+                )
+                
+                # Check device
+                device_ok = self.encoder.device.type in ['cuda', 'cpu']
+                
+                # Check model loaded
+                model_ok = self.encoder.model is not None
+                
+                # Get model info
+                info = self.encoder.get_model_info()
+                logger.info(f"Model info: {info}")
+                
+                passed = device_ok and model_ok
+                self.log_result(
+                    "Model Loading",
+                    passed,
+                    f"Model: {model_name}, Device: {self.encoder.device}, FP16: {self.encoder.use_fp16}"
+                )
+                
+                if passed:
+                    logger.info(f"✓ Successfully loaded: {model_name}")
+                    return True
+                
+            except RuntimeError as e:
+                if "out of memory" in str(e).lower() or "cuda" in str(e).lower():
+                    logger.warning(f"✗ OOM with {model_name}, trying next model...")
+                    # Clear CUDA cache before trying next model
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                    self.encoder = None
+                    continue
+                else:
+                    logger.error(f"✗ Runtime error with {model_name}: {str(e)}")
+                    self.encoder = None
+                    continue
+            except Exception as e:
+                logger.error(f"✗ Failed to load {model_name}: {str(e)}")
+                self.encoder = None
+                continue
+        
+        # If all models failed
+        self.log_result("Model Loading", False, "All model options failed - GPU may be too small")
+        logger.error("\n⚠️  SOLUTION: Your GPU doesn't have enough memory for any BLIP-2 model.")
+        logger.error("    Options:")
+        logger.error("    1. Use Kaggle T4 GPU (15GB) or P100 with smaller model")
+        logger.error("    2. Use CPU (slow but works): device='cpu'")
+        logger.error("    3. Use Google Colab with T4/V100 GPU")
+        return False
     
     def test_single_pair_scoring(self) -> bool:
         """Test 2: Single pair scoring."""

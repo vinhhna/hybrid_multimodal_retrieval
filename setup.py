@@ -18,12 +18,12 @@ except (UnicodeDecodeError, OSError):
 setup(
     name="flickr30k",
     version="0.1.0",
-    author="Your Name",
-    author_email="your.email@example.com",
+    author="Truong Tuan Vinh",
+    author_email="Vinh.TT225464@sis.hust.edu.vn",
     description="A package for hybrid multimodal retrieval using Flickr30K dataset",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/yourusername/hybrid_multimodal_retrieval",
+    url="https://github.com/vinhhna/hybrid_multimodal_retrieval",
     package_dir={"": "src"},
     packages=find_packages(where="src"),
     classifiers=[

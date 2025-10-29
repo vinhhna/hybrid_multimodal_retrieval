@@ -5,11 +5,8 @@
 # Model configuration
 model:
   name: "blip2"
-  # Available models:
-  # - Salesforce/blip2-opt-2.7b (lighter, faster)
-  # - Salesforce/blip2-opt-6.7b (balanced)
-  # - Salesforce/blip2-flan-t5-xl (best quality)
-  pretrained: "Salesforce/blip2-opt-2.7b"
+  # Using BLIP-2 FlanT5-XL (~15GB, fits P100 16GB GPU)
+  pretrained: "Salesforce/blip2-flan-t5-xl"
   device: "cuda"  # or "cpu" for fallback
   cache_dir: "models/blip2"  # Local cache for model weights
 
