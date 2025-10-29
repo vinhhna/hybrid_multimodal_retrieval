@@ -36,8 +36,8 @@ def get_paths(kaggle_input=None):
         # Kaggle environment
         kaggle_path = Path(kaggle_input)
         return {
-            'images_dir': kaggle_path / 'flickr30k-images' / 'flickr30k-images',
-            'captions_file': kaggle_path / 'results.csv',
+            'images_dir': kaggle_path / 'data' / 'images',
+            'captions_file': kaggle_path / 'data' / 'results.csv',
             'image_index': kaggle_path / 'data' / 'indices' / 'image_index.faiss',
             'text_index': kaggle_path / 'data' / 'indices' / 'text_index.faiss',
         }
