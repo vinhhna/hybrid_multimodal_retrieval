@@ -95,8 +95,16 @@ def main():
     
     dataset = Flickr30KDataset(
         images_dir=str(paths['images_dir']),
-        captions_file=str(paths['captions_file'])
+        captions_file=str(paths['captions_file']),
+        auto_load=True  # Ensure captions are loaded
     )
+    
+    # Verify dataset is loaded
+    if dataset.df is None:
+        print("  ! Dataset not auto-loaded, loading manually...")
+        dataset.load_captions()
+    
+    print(f"✓ Dataset loaded: {dataset.num_images} images, {dataset.num_captions} captions")
     
     # Initialize search engine
     search_engine = MultimodalSearchEngine(
