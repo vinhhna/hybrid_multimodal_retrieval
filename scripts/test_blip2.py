@@ -20,10 +20,15 @@ from PIL import Image
 import logging
 from typing import List, Tuple
 
-# Add src to path
-sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
-
-from retrieval.cross_encoder import CrossEncoder
+# Add project root to path if needed
+try:
+    from src.retrieval.cross_encoder import CrossEncoder
+except ImportError:
+    # If import fails, add parent directory to path and try again
+    project_root = Path(__file__).resolve().parent.parent
+    if project_root not in sys.path:
+        sys.path.insert(0, str(project_root))
+    from src.retrieval.cross_encoder import CrossEncoder
 
 # Setup logging
 logging.basicConfig(
@@ -36,10 +41,31 @@ logger = logging.getLogger(__name__)
 class BLIP2Tester:
     """Test suite for BLIP-2 cross-encoder."""
     
-    def __init__(self):
+    def __init__(self, data_dir=None):
         self.results = []
         self.encoder = None
-        self.data_dir = Path(__file__).parent.parent / 'data'
+        
+        # Find data directory - search upwards from script location
+        if data_dir:
+            self.data_dir = Path(data_dir)
+        else:
+            script_dir = Path(__file__).resolve().parent
+            current_dir = script_dir
+            
+            # Search for data directory by going up the tree
+            while current_dir != current_dir.parent:
+                data_path = current_dir / 'data'
+                if data_path.exists() and (data_path / 'images').exists():
+                    self.data_dir = data_path
+                    break
+                current_dir = current_dir.parent
+            else:
+                # Fallback: check current working directory
+                if (Path.cwd() / 'data' / 'images').exists():
+                    self.data_dir = Path.cwd() / 'data'
+                else:
+                    # Last resort: create relative path
+                    self.data_dir = Path('data')
         
     def log_result(self, test_name: str, passed: bool, message: str = ""):
         """Log test result."""
@@ -187,16 +213,18 @@ class BLIP2Tester:
                 self.log_result("Batch Scoring", False, "Not enough test images")
                 return False
             
-            # Create test queries
-            test_queries = [
+            # Create test queries - MUST match number of images
+            base_queries = [
                 "A photograph",
                 "People in a scene",
                 "An outdoor image",
                 "A colorful picture",
                 "A scene with activity"
-            ][:len(test_images)]
+            ]
+            # Repeat queries to match number of images
+            test_queries = (base_queries * ((len(test_images) // len(base_queries)) + 1))[:len(test_images)]
             
-            logger.info(f"Testing with {len(test_images)} pairs")
+            logger.info(f"Testing with {len(test_images)} pairs (queries: {len(test_queries)}, images: {len(test_images)})")
             
             # Test different batch sizes
             batch_sizes = [2, 4, 8]
@@ -388,7 +416,14 @@ class BLIP2Tester:
 
 def main():
     """Main entry point."""
-    tester = BLIP2Tester()
+    import argparse
+    
+    parser = argparse.ArgumentParser(description='Test BLIP-2 Cross-Encoder')
+    parser.add_argument('--data-dir', type=str, default=None,
+                       help='Path to data directory (default: auto-detect)')
+    args = parser.parse_args()
+    
+    tester = BLIP2Tester(data_dir=args.data_dir)
     exit_code = tester.run_all_tests()
     sys.exit(exit_code)
 

@@ -16,11 +16,15 @@ from pathlib import Path
 import yaml
 import numpy as np
 
-# Add src to path
-project_root = Path(__file__).parent.parent
-sys.path.insert(0, str(project_root / 'src'))
-
-from retrieval import BiEncoder, FAISSIndex
+# Import from src
+try:
+    from src.retrieval import BiEncoder, FAISSIndex
+except ImportError:
+    # If import fails, add project root to path
+    project_root = Path(__file__).resolve().parent.parent
+    if project_root not in sys.path:
+        sys.path.insert(0, str(project_root))
+    from src.retrieval import BiEncoder, FAISSIndex
 
 
 def load_config(config_path: str = 'configs/faiss_config.yaml') -> dict:

@@ -1,761 +1,359 @@
-# API Reference
+# API Reference - Simple Guide
 
-Complete API documentation for the Hybrid Multimodal Retrieval System.
-
----
-
-## Table of Contents
-
-1. [retrieval Module](#retrieval-module)
-   - [BiEncoder](#biencoder)
-   - [FAISSIndex](#faissindex)
-   - [MultimodalSearchEngine](#multimodalsearchengine)
-   - [SearchResult](#searchresult)
-2. [flickr30k Module](#flickr30k-module)
-   - [Flickr30KDataset](#flickr30kdataset)
-   - [Utility Functions](#utility-functions)
-3. [Configuration](#configuration)
+Quick guide to using the code in this project. Don't worry, it's easier than it looks!
 
 ---
 
-## retrieval Module
+## 🎯 The Main Classes You'll Use
 
-The `retrieval` module provides classes for multimodal search and retrieval.
+There are just 3 main things you need to know about:
 
-```python
-from retrieval import BiEncoder, FAISSIndex, MultimodalSearchEngine, SearchResult
-```
+1. **BiEncoder** - Turns images and text into numbers (embeddings)
+2. **FAISSIndex** - Stores and searches those numbers super fast
+3. **MultimodalSearchEngine** - The easy way to search (uses both above)
 
----
-
-### BiEncoder
-
-CLIP bi-encoder wrapper for generating image and text embeddings.
-
-#### Class Definition
-
-```python
-class BiEncoder:
-    """
-    Wrapper for CLIP model to generate embeddings.
-    
-    Attributes:
-        model: CLIP model instance
-        preprocess: Image preprocessing function
-        tokenizer: Text tokenizer
-        device: torch.device ('cuda' or 'cpu')
-        model_name: Name of the CLIP model
-        pretrained: Pretrained weights identifier
-    """
-```
-
-#### Constructor
-
-```python
-BiEncoder(model_name='ViT-B-32', pretrained='openai', device=None)
-```
-
-**Parameters:**
-- `model_name` (str, optional): CLIP model architecture. Default: `'ViT-B-32'`
-- `pretrained` (str, optional): Pretrained weights. Default: `'openai'`
-- `device` (str or torch.device, optional): Device to use. Default: Auto-detect (CUDA if available)
-
-**Returns:**
-- `BiEncoder` instance
-
-**Example:**
-```python
-# Use GPU if available
-encoder = BiEncoder(model_name='ViT-B-32', pretrained='openai')
-
-# Force CPU
-encoder = BiEncoder(model_name='ViT-B-32', pretrained='openai', device='cpu')
-```
+**Pro tip:** Just use `MultimodalSearchEngine` and you're good to go! 🚀
 
 ---
 
-#### encode_images()
+## 🔧 MultimodalSearchEngine - The Easy One
 
-Generate embeddings for a list of images.
+This is all you need for most tasks!
 
-```python
-encode_images(images, batch_size=32, show_progress=True, normalize=True)
-```
+### Setup (Do Once)
 
-**Parameters:**
-- `images` (List[PIL.Image or str or Path]): List of PIL Images or image paths
-- `batch_size` (int, optional): Batch size for processing. Default: `32`
-- `show_progress` (bool, optional): Show progress bar. Default: `True`
-- `normalize` (bool, optional): L2-normalize embeddings. Default: `True`
-
-**Returns:**
-- `np.ndarray`: Array of shape `(n_images, 512)` with image embeddings
-
-**Example:**
-```python
-from PIL import Image
-
-# From PIL Images
-images = [Image.open(f'image{i}.jpg') for i in range(10)]
-embeddings = encoder.encode_images(images)
-
-# From paths
-image_paths = ['image1.jpg', 'image2.jpg', 'image3.jpg']
-embeddings = encoder.encode_images(image_paths, batch_size=16)
-
-print(embeddings.shape)  # (3, 512)
-```
-
----
-
-#### encode_texts()
-
-Generate embeddings for a list of text strings.
-
-```python
-encode_texts(texts, batch_size=32, show_progress=True, normalize=True)
-```
-
-**Parameters:**
-- `texts` (List[str]): List of text strings
-- `batch_size` (int, optional): Batch size for processing. Default: `32`
-- `show_progress` (bool, optional): Show progress bar. Default: `True`
-- `normalize` (bool, optional): L2-normalize embeddings. Default: `True`
-
-**Returns:**
-- `np.ndarray`: Array of shape `(n_texts, 512)` with text embeddings
-
-**Example:**
-```python
-texts = [
-    "A dog playing in the park",
-    "Children at the beach",
-    "Mountain landscape"
-]
-embeddings = encoder.encode_texts(texts)
-
-print(embeddings.shape)  # (3, 512)
-```
-
----
-
-#### save_embeddings() / load_embeddings()
-
-```python
-save_embeddings(embeddings, save_path, metadata=None)
-load_embeddings(load_path)
-```
-
-**Parameters (save):**
-- `embeddings` (np.ndarray): Embeddings array to save
-- `save_path` (str or Path): Path to save (`.npy` file)
-- `metadata` (dict, optional): Additional metadata to save as JSON
-
-**Returns (load):**
-- `tuple`: `(embeddings, metadata)` - Embeddings array and metadata dict
-
-**Example:**
-```python
-# Save
-metadata = {'model': 'ViT-B-32', 'num_images': len(images)}
-encoder.save_embeddings(embeddings, 'image_embeds.npy', metadata)
-
-# Load
-embeddings, meta = encoder.load_embeddings('image_embeds.npy')
-print(f"Loaded {meta['num_images']} embeddings")
-```
-
----
-
-### FAISSIndex
-
-FAISS index manager for fast similarity search.
-
-#### Class Definition
-
-```python
-class FAISSIndex:
-    """
-    Wrapper for FAISS index operations.
-    
-    Attributes:
-        index: faiss.Index instance
-        dimension: Embedding dimension (512)
-        index_type: Type of index ('flat', 'ivf', 'hnsw')
-        metric: Distance metric ('cosine', 'euclidean')
-        metadata: Dictionary with index metadata
-        is_trained: Whether index is trained
-    """
-```
-
-#### Constructor
-
-```python
-FAISSIndex(dimension=512, index_type='flat', metric='cosine', nlist=100)
-```
-
-**Parameters:**
-- `dimension` (int, optional): Embedding dimension. Default: `512`
-- `index_type` (str, optional): Index type - `'flat'`, `'ivf'`, or `'hnsw'`. Default: `'flat'`
-- `metric` (str, optional): Distance metric - `'cosine'` or `'euclidean'`. Default: `'cosine'`
-- `nlist` (int, optional): Number of clusters for IVF. Default: `100`
-
-**Returns:**
-- `FAISSIndex` instance
-
-**Example:**
-```python
-# Exact search (slower, more accurate)
-index = FAISSIndex(dimension=512, index_type='flat', metric='cosine')
-
-# Approximate search (faster, slightly less accurate)
-index = FAISSIndex(dimension=512, index_type='ivf', metric='cosine', nlist=100)
-```
-
----
-
-#### add()
-
-Add embeddings to the index.
-
-```python
-add(embeddings, ids=None)
-```
-
-**Parameters:**
-- `embeddings` (np.ndarray): Embeddings array of shape `(n, dimension)`
-- `ids` (List[str], optional): List of IDs for each embedding
-
-**Example:**
-```python
-# Add embeddings
-index.add(embeddings, ids=['img1.jpg', 'img2.jpg', 'img3.jpg'])
-print(f"Index now has {index.index.ntotal} vectors")
-```
-
----
-
-#### search()
-
-Search for k nearest neighbors.
-
-```python
-search(query_embeddings, k=10)
-```
-
-**Parameters:**
-- `query_embeddings` (np.ndarray): Query embeddings of shape `(n_queries, dimension)`
-- `k` (int, optional): Number of results to return. Default: `10`
-
-**Returns:**
-- `tuple`: `(scores, indices)` - Similarity scores and indices arrays
-  - `scores`: shape `(n_queries, k)`
-  - `indices`: shape `(n_queries, k)`
-
-**Example:**
-```python
-# Single query
-query_emb = encoder.encode_texts(["A dog playing"])
-scores, indices = index.search(query_emb, k=5)
-
-print("Top 5 results:")
-for i, (score, idx) in enumerate(zip(scores[0], indices[0])):
-    print(f"  {i+1}. Index {idx}: score {score:.4f}")
-
-# Batch query
-query_embs = encoder.encode_texts(["dogs", "cats", "birds"])
-scores, indices = index.search(query_embs, k=10)
-print(scores.shape)  # (3, 10)
-```
-
----
-
-#### save() / load()
-
-```python
-save(index_path, metadata_path=None)
-load(index_path, metadata_path=None)
-```
-
-**Parameters:**
-- `index_path` (str or Path): Path to save/load FAISS index (`.faiss` file)
-- `metadata_path` (str or Path, optional): Path to save/load metadata JSON
-
-**Example:**
-```python
-# Save
-index.save('my_index.faiss')
-
-# Load
-index = FAISSIndex()
-index.load('my_index.faiss')
-print(f"Loaded index with {index.index.ntotal} vectors")
-```
-
----
-
-#### get_stats()
-
-Get index statistics.
-
-```python
-get_stats()
-```
-
-**Returns:**
-- `dict`: Dictionary with index statistics
-
-**Example:**
-```python
-stats = index.get_stats()
-print(f"Index type: {stats['type']}")
-print(f"Vectors: {stats['n_vectors']}")
-print(f"Dimension: {stats['dimension']}")
-```
-
----
-
-### MultimodalSearchEngine
-
-High-level search engine for multimodal retrieval.
-
-#### Class Definition
-
-```python
-class MultimodalSearchEngine:
-    """
-    Multimodal search engine combining BiEncoder and FAISS indices.
-    
-    Attributes:
-        encoder: BiEncoder instance
-        image_index: FAISSIndex for images
-        text_index: FAISSIndex for text
-        dataset: Flickr30KDataset (optional)
-    """
-```
-
-#### Constructor
-
-```python
-MultimodalSearchEngine(encoder, image_index, text_index, dataset=None)
-```
-
-**Parameters:**
-- `encoder` (BiEncoder): Encoder for generating embeddings
-- `image_index` (FAISSIndex): FAISS index containing image embeddings
-- `text_index` (FAISSIndex): FAISS index containing text embeddings
-- `dataset` (Flickr30KDataset, optional): Dataset for accessing captions/images
-
-**Returns:**
-- `MultimodalSearchEngine` instance
-
-**Example:**
 ```python
 from retrieval import BiEncoder, FAISSIndex, MultimodalSearchEngine
 from flickr30k import Flickr30KDataset
 
-# Load components
-encoder = BiEncoder(model_name='ViT-B-32', pretrained='openai')
+# Load everything
+encoder = BiEncoder()
 image_index = FAISSIndex.load('data/indices/image_index.faiss')
 text_index = FAISSIndex.load('data/indices/text_index.faiss')
 dataset = Flickr30KDataset('data/images', 'data/results.csv')
 
-# Create engine
+# Create your search engine
 engine = MultimodalSearchEngine(encoder, image_index, text_index, dataset)
 ```
 
----
-
-#### text_to_image_search()
-
-Search images using text query.
+### Search by Text
 
 ```python
-text_to_image_search(query_text, k=10, return_metadata=True)
+# Find images matching your description
+results = engine.text_to_image_search("A dog playing", k=10)
+
+# See what you found
+for img_name, score in results:
+    print(f"{img_name} - Match: {score:.2f}")
 ```
 
 **Parameters:**
-- `query_text` (str or List[str]): Text query or list of queries
-- `k` (int, optional): Number of results. Default: `10`
-- `return_metadata` (bool, optional): Include metadata in results. Default: `True`
+- `query_text` - What you're looking for (string)
+- `k` - How many results you want (default: 10)
 
-**Returns:**
-- `SearchResult` or `List[SearchResult]`: Results (single or list depending on input)
+### Search by Image (Find Captions)
 
-**Example:**
 ```python
-# Single query
-result = engine.text_to_image_search("A dog playing in the park", k=5)
+# Get captions for an image
+captions = engine.image_to_text_search("my_image.jpg", k=5)
 
-print(f"Found {len(result)} images:")
-for img_name, score in result:
-    print(f"  {img_name}: {score:.4f}")
-
-# Multiple queries
-queries = ["dogs", "cats", "birds"]
-results = engine.text_to_image_search(queries, k=3)
-
-for query, result in zip(queries, results):
-    print(f"\n{query}: {result.ids[0]} ({result.scores[0]:.3f})")
+# Print them
+for caption, score in captions:
+    print(f"📝 {caption}")
 ```
 
----
-
-#### image_to_text_search()
-
-Search captions using image query.
+### Search by Image (Find Similar)
 
 ```python
-image_to_text_search(query_image, k=10, return_metadata=True)
-```
+# Find images that look similar
+similar = engine.image_to_image_search("vacation.jpg", k=10)
 
-**Parameters:**
-- `query_image` (str, Path, PIL.Image, or List): Image path, PIL Image, or list
-- `k` (int, optional): Number of results. Default: `10`
-- `return_metadata` (bool, optional): Include metadata. Default: `True`
-
-**Returns:**
-- `SearchResult` or `List[SearchResult]`: Results with captions (if dataset provided)
-
-**Example:**
-```python
-# From file path
-result = engine.image_to_text_search('data/images/123.jpg', k=5)
-
-print("Top 5 captions:")
-for i, (caption, score) in enumerate(result, 1):
-    print(f"  {i}. [{score:.4f}] {caption}")
-
-# From PIL Image
-from PIL import Image
-img = Image.open('my_image.jpg')
-result = engine.image_to_text_search(img, k=3)
-```
-
----
-
-#### image_to_image_search()
-
-Find similar images.
-
-```python
-image_to_image_search(query_image, k=10, return_metadata=True)
-```
-
-**Parameters:**
-- `query_image` (str, Path, PIL.Image, or List): Image path, PIL Image, or list
-- `k` (int, optional): Number of results. Default: `10`
-- `return_metadata` (bool, optional): Include metadata. Default: `True`
-
-**Returns:**
-- `SearchResult` or `List[SearchResult]`: Similar images
-
-**Example:**
-```python
-result = engine.image_to_image_search('query_image.jpg', k=6)
-
-print("Similar images:")
-for i, (img_name, score) in enumerate(result):
+# First result is the image itself
+for i, (img_name, score) in enumerate(similar):
     if i == 0:
-        print(f"  {i+1}. {img_name} (QUERY - {score:.4f})")
+        print(f"Original: {img_name}")
     else:
-        print(f"  {i+1}. {img_name} ({score:.4f})")
+        print(f"Similar #{i}: {img_name}")
 ```
 
----
-
-#### batch_search()
-
-Batch search for multiple queries.
+### Batch Search (Multiple Queries at Once)
 
 ```python
-batch_search(queries, search_type='text_to_image', k=10, return_metadata=True)
-```
+# Search for multiple things
+queries = [
+    "Dogs playing",
+    "People swimming",
+    "City at night"
+]
 
-**Parameters:**
-- `queries` (List): List of queries (text or images)
-- `search_type` (str): `'text_to_image'`, `'image_to_text'`, or `'image_to_image'`
-- `k` (int, optional): Number of results per query. Default: `10`
-- `return_metadata` (bool, optional): Include metadata. Default: `True`
+results = engine.batch_search(queries, search_type='text_to_image', k=5)
 
-**Returns:**
-- `List[SearchResult]`: List of results for each query
-
-**Example:**
-```python
-queries = ["dogs playing", "cats sleeping", "birds flying"]
-results = engine.batch_search(queries, 'text_to_image', k=5)
-
+# Look at results
 for query, result in zip(queries, results):
-    print(f"{query}: {len(result)} results")
+    print(f"\n{query}:")
+    for img, score in result:
+        print(f"  - {img}")
+```
+
+**Pro tip:** Batch search is faster than doing searches one by one!
+
+---
+
+## 📊 Flickr30KDataset - Working with the Data
+
+### Load the Dataset
+
+```python
+from flickr30k import Flickr30KDataset
+
+dataset = Flickr30KDataset('data/images', 'data/results.csv')
+print(f"Loaded {dataset.num_images} images!")
+```
+
+### Get Captions for an Image
+
+```python
+captions = dataset.get_captions('1000092795.jpg')
+
+for i, caption in enumerate(captions, 1):
+    print(f"{i}. {caption}")
+```
+
+### Load an Image
+
+```python
+img = dataset.get_image('1000092795.jpg')
+# Now you can display it with matplotlib or PIL
+```
+
+### Get All Image Names
+
+```python
+all_images = dataset.get_unique_images()
+print(f"Total images: {len(all_images)}")
 ```
 
 ---
 
-#### get_performance_stats()
+## 🤖 BiEncoder - The AI Part (Advanced)
 
-Get performance metrics from last search.
+Only use this if you need to generate embeddings yourself.
+
+### Create Encoder
 
 ```python
-get_performance_stats()
+from retrieval import BiEncoder
+
+encoder = BiEncoder()
+# That's it! It automatically uses GPU if available
 ```
 
-**Returns:**
-- `dict`: Performance statistics
+### Turn Images into Embeddings
 
-**Example:**
 ```python
-result = engine.text_to_image_search("dogs", k=10)
-stats = engine.get_performance_stats()
+from PIL import Image
 
-print(f"Encoding: {stats['encode_time_ms']:.2f}ms")
-print(f"Search: {stats['search_time_ms']:.2f}ms")
-print(f"Total: {stats['total_time_ms']:.2f}ms")
-print(f"QPS: {stats['qps']:.1f}")
+# Load some images
+images = [Image.open(f) for f in ['img1.jpg', 'img2.jpg']]
+
+# Get embeddings (numbers that represent the images)
+embeddings = encoder.encode_images(images)
+print(f"Shape: {embeddings.shape}")  # (2, 512)
+```
+
+### Turn Text into Embeddings
+
+```python
+texts = [
+    "A dog playing",
+    "People at the beach",
+    "City skyline"
+]
+
+embeddings = encoder.encode_texts(texts)
+print(f"Shape: {embeddings.shape}")  # (3, 512)
+```
+
+**What's an embedding?** It's just a list of 512 numbers that captures the "meaning" of an image or text. Similar things have similar numbers!
+
+---
+
+## 🗂️ FAISSIndex - The Fast Search (Advanced)
+
+Only use this if you want to build your own index.
+
+### Create a New Index
+
+```python
+from retrieval import FAISSIndex
+
+index = FAISSIndex(dimension=512, index_type='flat')
+```
+
+### Add Embeddings
+
+```python
+# Add your embeddings
+index.add(embeddings, ids=['img1.jpg', 'img2.jpg', 'img3.jpg'])
+```
+
+### Search
+
+```python
+# Create a query embedding
+query_emb = encoder.encode_texts(["dogs"])
+
+# Search!
+scores, indices = index.search(query_emb, k=5)
+
+print(f"Top 5 results:")
+for score, idx in zip(scores[0], indices[0]):
+    print(f"  Index {idx}: score {score:.3f}")
+```
+
+### Save and Load
+
+```python
+# Save for later
+index.save('my_index.faiss')
+
+# Load it back
+index = FAISSIndex()
+index.load('my_index.faiss')
 ```
 
 ---
 
-### SearchResult
+## 💡 Common Patterns
 
-Container class for search results.
-
-#### Class Definition
+### Pattern 1: Simple Text Search
 
 ```python
-class SearchResult:
-    """
-    Container for search results.
-    
-    Attributes:
-        ids: List of result IDs (image names or captions)
-        scores: List of similarity scores
-        metadata: Optional metadata dictionary
-    """
+# This is all you need!
+results = engine.text_to_image_search("cats", k=10)
 ```
 
-#### Usage
+### Pattern 2: Display Results with Images
+
+```python
+import matplotlib.pyplot as plt
+
+results = engine.text_to_image_search("sunset", k=6)
+
+fig, axes = plt.subplots(2, 3, figsize=(12, 8))
+for i, (img_name, score) in enumerate(results):
+    img = dataset.get_image(img_name)
+    axes[i//3, i%3].imshow(img)
+    axes[i//3, i%3].set_title(f"Score: {score:.2f}")
+    axes[i//3, i%3].axis('off')
+plt.show()
+```
+
+### Pattern 3: Find Images Like Yours
+
+```python
+# Upload your image
+results = engine.image_to_image_search("my_photo.jpg", k=10)
+
+# Get the similar ones (skip first - it's your image)
+similar = results[1:]  # Skip the first result
+```
+
+---
+
+## 🔍 Understanding the Results
+
+### What's a Score?
+
+Each result comes with a score between 0 and 1:
+- **1.0** = Perfect match
+- **0.8-0.9** = Very similar
+- **0.6-0.7** = Somewhat similar
+- **< 0.5** = Not very similar
+
+### SearchResult Object
 
 ```python
 result = engine.text_to_image_search("dogs", k=5)
 
-# Access as iterable
+# You can use it like a list
 for img_name, score in result:
-    print(f"{img_name}: {score}")
+    print(img_name, score)
 
-# Access by index
-first_id, first_score = result[0]
-
-# Get length
-print(f"Found {len(result)} results")
-
-# String representation
-print(result)  # SearchResult(n=5, top_score=0.3456)
+# Or access parts directly
+print(result.ids)      # ['img1.jpg', 'img2.jpg', ...]
+print(result.scores)   # [0.85, 0.78, ...]
+print(len(result))     # 5
 ```
 
 ---
 
-## flickr30k Module
+## 🎨 Complete Example
 
-Dataset utilities for Flickr30K.
-
-```python
-from flickr30k import Flickr30KDataset
-from flickr30k.utils import load_config
-```
-
----
-
-### Flickr30KDataset
-
-Dataset loader and accessor for Flickr30K.
-
-#### Constructor
-
-```python
-Flickr30KDataset(images_dir, captions_file)
-```
-
-**Parameters:**
-- `images_dir` (str or Path): Path to images directory
-- `captions_file` (str or Path): Path to `results.csv`
-
-**Example:**
-```python
-dataset = Flickr30KDataset(
-    images_dir='data/images',
-    captions_file='data/results.csv'
-)
-
-print(f"Loaded {len(dataset)} captions")
-print(f"Unique images: {dataset.num_images}")
-```
-
----
-
-#### get_captions()
-
-Get all captions for an image.
-
-```python
-get_captions(image_name)
-```
-
-**Parameters:**
-- `image_name` (str): Image filename
-
-**Returns:**
-- `List[str]`: List of captions (typically 5)
-
-**Example:**
-```python
-captions = dataset.get_captions('1000092795.jpg')
-for i, caption in enumerate(captions, 1):
-    print(f"  {i}. {caption}")
-```
-
----
-
-#### get_image()
-
-Load and return an image.
-
-```python
-get_image(image_name)
-```
-
-**Parameters:**
-- `image_name` (str): Image filename
-
-**Returns:**
-- `PIL.Image`: Loaded image
-
-**Example:**
-```python
-import matplotlib.pyplot as plt
-
-img = dataset.get_image('1000092795.jpg')
-plt.imshow(img)
-plt.axis('off')
-plt.show()
-```
-
----
-
-#### get_unique_images()
-
-Get list of all unique image names.
-
-```python
-get_unique_images()
-```
-
-**Returns:**
-- `List[str]`: List of image filenames
-
-**Example:**
-```python
-images = dataset.get_unique_images()
-print(f"Total images: {len(images)}")
-print(f"First 5: {images[:5]}")
-```
-
----
-
-### Utility Functions
-
-#### load_config()
-
-Load YAML configuration file.
-
-```python
-from flickr30k.utils import load_config
-
-config = load_config('configs/faiss_config.yaml')
-print(config['index_type'])
-```
-
----
-
-## Configuration
-
-### FAISS Configuration (`configs/faiss_config.yaml`)
-
-```yaml
-# Index configuration
-index:
-  type: "flat"          # flat, ivf, or hnsw
-  metric: "cosine"      # cosine or euclidean
-  dimension: 512        # Embedding dimension
-  
-  # IVF parameters (only used if type=ivf)
-  ivf:
-    nlist: 100          # Number of clusters
-    nprobe: 10          # Number of clusters to search
-  
-  # HNSW parameters (only used if type=hnsw)
-  hnsw:
-    M: 32               # Number of connections
-    efConstruction: 40  # Construction time search depth
-    efSearch: 16        # Search time depth
-
-# Paths
-paths:
-  image_index: "data/indices/image_index.faiss"
-  text_index: "data/indices/text_index.faiss"
-```
-
----
-
-## Common Patterns
-
-### Pattern 1: Complete Search Pipeline
+Here's a complete example that does everything:
 
 ```python
 from retrieval import BiEncoder, FAISSIndex, MultimodalSearchEngine
 from flickr30k import Flickr30KDataset
+import matplotlib.pyplot as plt
 
-# Setup (do once)
+# 1. Setup (do once)
+print("Loading models...")
 encoder = BiEncoder()
 image_index = FAISSIndex.load('data/indices/image_index.faiss')
 text_index = FAISSIndex.load('data/indices/text_index.faiss')
 dataset = Flickr30KDataset('data/images', 'data/results.csv')
 engine = MultimodalSearchEngine(encoder, image_index, text_index, dataset)
 
-# Use repeatedly
-results = engine.text_to_image_search("your query", k=10)
-```
+# 2. Search
+print("Searching...")
+results = engine.text_to_image_search("children playing on the beach", k=6)
 
-### Pattern 2: Batch Processing
-
-```python
-queries = ["query1", "query2", "query3"]
-results = engine.batch_search(queries, 'text_to_image', k=5)
-
-for query, result in zip(queries, results):
-    print(f"\n{query}:")
-    for img_name, score in result:
-        print(f"  {img_name}: {score:.3f}")
-```
-
-### Pattern 3: Visualization
-
-```python
-import matplotlib.pyplot as plt
-
-result = engine.text_to_image_search("dogs", k=5)
-
-fig, axes = plt.subplots(1, 5, figsize=(15, 3))
-for i, (img_name, score) in enumerate(result):
+# 3. Display
+print("Displaying results...")
+fig, axes = plt.subplots(2, 3, figsize=(15, 10))
+for i, (img_name, score) in enumerate(results):
     img = dataset.get_image(img_name)
-    axes[i].imshow(img)
-    axes[i].axis('off')
-    axes[i].set_title(f"{score:.3f}")
+    axes[i//3, i%3].imshow(img)
+    axes[i//3, i%3].set_title(f"{score:.2f}")
+    axes[i//3, i%3].axis('off')
+plt.suptitle("Children playing on the beach", fontsize=16)
 plt.show()
+
+# Done!
+print("✓ Search complete!")
 ```
 
 ---
 
-**Version**: 1.0  
-**Last Updated**: October 24, 2025  
-**Phase**: 2 Complete
+## 🆘 Troubleshooting
+
+### "Module not found"
+```bash
+pip install -e .
+```
+
+### "CUDA out of memory"
+```python
+# Use CPU instead
+encoder = BiEncoder(device='cpu')
+```
+
+### "File not found"
+Make sure you:
+1. Downloaded the dataset
+2. Built the indices (see `scripts/build_faiss_indices.py`)
+
+---
+
+## 📚 Want More Details?
+
+Check out the notebooks:
+- `notebooks/05_search_demo.ipynb` - Interactive examples
+- `notebooks/04_test_faiss_indices.ipynb` - How the search works
+
+---
+
+**That's all you need to know!** Start with `MultimodalSearchEngine` and you'll be searching in no time. 🎉
+
+For the original detailed documentation, check the Git history.

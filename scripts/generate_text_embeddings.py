@@ -12,12 +12,17 @@ import sys
 from pathlib import Path
 import yaml
 
-# Add src to path
-project_root = Path(__file__).parent.parent
-sys.path.insert(0, str(project_root / 'src'))
-
-from retrieval import BiEncoder
-from flickr30k import Flickr30KDataset
+# Import from src
+try:
+    from src.retrieval import BiEncoder
+    from src.flickr30k import Flickr30KDataset
+except ImportError:
+    # If import fails, add project root to path
+    project_root = Path(__file__).resolve().parent.parent
+    if project_root not in sys.path:
+        sys.path.insert(0, str(project_root))
+    from src.retrieval import BiEncoder
+    from src.flickr30k import Flickr30KDataset
 
 
 def load_config(config_path: str = 'configs/clip_config.yaml') -> dict:
