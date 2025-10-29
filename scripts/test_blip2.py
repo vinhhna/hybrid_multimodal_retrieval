@@ -17,7 +17,6 @@ import torch
 import numpy as np
 from pathlib import Path
 from PIL import Image
-import logging
 from typing import List, Tuple
 
 # Add project root to path if needed
@@ -29,13 +28,6 @@ except ImportError:
     if project_root not in sys.path:
         sys.path.insert(0, str(project_root))
     from src.retrieval.cross_encoder import CrossEncoder
-
-# Setup logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
 
 
 class BLIP2Tester:
@@ -70,7 +62,7 @@ class BLIP2Tester:
     def log_result(self, test_name: str, passed: bool, message: str = ""):
         """Log test result."""
         status = "✓ PASS" if passed else "✗ FAIL"
-        logger.info(f"{status} - {test_name}: {message}")
+        print(f"{status} - {test_name}: {message}")
         self.results.append({
             'test': test_name,
             'passed': passed,
@@ -79,9 +71,9 @@ class BLIP2Tester:
     
     def test_model_loading(self) -> bool:
         """Test 1: Model loading and initialization."""
-        logger.info("\n" + "="*60)
-        logger.info("TEST 1: Model Loading")
-        logger.info("="*60)
+        print("\n" + "="*60)
+        print("TEST 1: Model Loading")
+        print("="*60)
         
         # Load the default model
         model_options = [
@@ -90,7 +82,7 @@ class BLIP2Tester:
         
         for model_name, description in model_options:
             try:
-                logger.info(f"\nTrying: {model_name} ({description})")
+                print(f"\nTrying: {model_name} ({description})")
                 
                 self.encoder = CrossEncoder(
                     model_name=model_name,
@@ -106,7 +98,7 @@ class BLIP2Tester:
                 
                 # Get model info
                 info = self.encoder.get_model_info()
-                logger.info(f"Model info: {info}")
+                print(f"Model info: {info}")
                 
                 passed = device_ok and model_ok
                 self.log_result(
@@ -116,40 +108,40 @@ class BLIP2Tester:
                 )
                 
                 if passed:
-                    logger.info(f"✓ Successfully loaded: {model_name}")
+                    print(f"✓ Successfully loaded: {model_name}")
                     return True
                 
             except RuntimeError as e:
                 if "out of memory" in str(e).lower() or "cuda" in str(e).lower():
-                    logger.warning(f"✗ OOM with {model_name}, trying next model...")
+                    print(f"✗ OOM with {model_name}, trying next model...")
                     # Clear CUDA cache before trying next model
                     if torch.cuda.is_available():
                         torch.cuda.empty_cache()
                     self.encoder = None
                     continue
                 else:
-                    logger.error(f"✗ Runtime error with {model_name}: {str(e)}")
+                    print(f"✗ Runtime error with {model_name}: {str(e)}")
                     self.encoder = None
                     continue
             except Exception as e:
-                logger.error(f"✗ Failed to load {model_name}: {str(e)}")
+                print(f"✗ Failed to load {model_name}: {str(e)}")
                 self.encoder = None
                 continue
         
         # If all models failed
         self.log_result("Model Loading", False, "All model options failed - GPU may be too small")
-        logger.error("\n⚠️  SOLUTION: Your GPU doesn't have enough memory for any BLIP-2 model.")
-        logger.error("    Options:")
-        logger.error("    1. Use Kaggle T4 GPU (15GB) or P100 with smaller model")
-        logger.error("    2. Use CPU (slow but works): device='cpu'")
-        logger.error("    3. Use Google Colab with T4/V100 GPU")
+        print("\n⚠️  SOLUTION: Your GPU doesn't have enough memory for any BLIP-2 model.")
+        print("    Options:")
+        print("    1. Use Kaggle T4 GPU (15GB) or P100 with smaller model")
+        print("    2. Use CPU (slow but works): device='cpu'")
+        print("    3. Use Google Colab with T4/V100 GPU")
         return False
     
     def test_single_pair_scoring(self) -> bool:
         """Test 2: Single pair scoring."""
-        logger.info("\n" + "="*60)
-        logger.info("TEST 2: Single Pair Scoring")
-        logger.info("="*60)
+        print("\n" + "="*60)
+        print("TEST 2: Single Pair Scoring")
+        print("="*60)
         
         if self.encoder is None:
             self.log_result("Single Pair Scoring", False, "Encoder not initialized")
@@ -171,8 +163,8 @@ class BLIP2Tester:
             test_image = test_images[0]
             test_query = "A photograph"
             
-            logger.info(f"Testing with: {test_image.name}")
-            logger.info(f"Query: '{test_query}'")
+            print(f"Testing with: {test_image.name}")
+            print(f"Query: '{test_query}'")
             
             # Score single pair
             score = self.encoder.score_pair(test_query, test_image)
@@ -180,7 +172,7 @@ class BLIP2Tester:
             # Validate score
             score_valid = isinstance(score, (float, np.floating)) and 0 <= score <= 1
             
-            logger.info(f"Score: {score:.4f}")
+            print(f"Score: {score:.4f}")
             
             self.log_result(
                 "Single Pair Scoring",
@@ -191,14 +183,14 @@ class BLIP2Tester:
             
         except Exception as e:
             self.log_result("Single Pair Scoring", False, f"Error: {str(e)}")
-            logger.exception(e)
+            import traceback; traceback.print_exc()
             return False
     
     def test_batch_scoring(self) -> bool:
         """Test 3: Batch scoring with different batch sizes."""
-        logger.info("\n" + "="*60)
-        logger.info("TEST 3: Batch Scoring")
-        logger.info("="*60)
+        print("\n" + "="*60)
+        print("TEST 3: Batch Scoring")
+        print("="*60)
         
         if self.encoder is None:
             self.log_result("Batch Scoring", False, "Encoder not initialized")
@@ -224,7 +216,7 @@ class BLIP2Tester:
             # Repeat queries to match number of images
             test_queries = (base_queries * ((len(test_images) // len(base_queries)) + 1))[:len(test_images)]
             
-            logger.info(f"Testing with {len(test_images)} pairs (queries: {len(test_queries)}, images: {len(test_images)})")
+            print(f"Testing with {len(test_images)} pairs (queries: {len(test_queries)}, images: {len(test_images)})")
             
             # Test different batch sizes
             batch_sizes = [2, 4, 8]
@@ -232,7 +224,7 @@ class BLIP2Tester:
             
             for batch_size in batch_sizes:
                 try:
-                    logger.info(f"\nTesting batch size: {batch_size}")
+                    print(f"\nTesting batch size: {batch_size}")
                     scores = self.encoder.score_pairs(
                         test_queries,
                         test_images,
@@ -246,14 +238,14 @@ class BLIP2Tester:
                         all(0 <= s <= 1 for s in scores)
                     )
                     
-                    logger.info(f"Scores: {scores}")
-                    logger.info(f"Valid: {scores_valid}")
+                    print(f"Scores: {scores}")
+                    print(f"Valid: {scores_valid}")
                     
                     if not scores_valid:
                         all_passed = False
                         
                 except Exception as e:
-                    logger.error(f"Batch size {batch_size} failed: {e}")
+                    print(f"Batch size {batch_size} failed: {e}")
                     all_passed = False
             
             self.log_result("Batch Scoring", all_passed, f"Tested batch sizes: {batch_sizes}")
@@ -261,14 +253,14 @@ class BLIP2Tester:
             
         except Exception as e:
             self.log_result("Batch Scoring", False, f"Error: {str(e)}")
-            logger.exception(e)
+            import traceback; traceback.print_exc()
             return False
     
     def test_memory_handling(self) -> bool:
         """Test 4: Memory management and OOM handling."""
-        logger.info("\n" + "="*60)
-        logger.info("TEST 4: Memory Handling")
-        logger.info("="*60)
+        print("\n" + "="*60)
+        print("TEST 4: Memory Handling")
+        print("="*60)
         
         if self.encoder is None:
             self.log_result("Memory Handling", False, "Encoder not initialized")
@@ -278,7 +270,7 @@ class BLIP2Tester:
             # Check initial memory
             if torch.cuda.is_available():
                 initial_memory = torch.cuda.memory_allocated()
-                logger.info(f"Initial GPU memory: {initial_memory / 1e6:.2f} MB")
+                print(f"Initial GPU memory: {initial_memory / 1e6:.2f} MB")
             
             # Test with fallback batch size
             images_dir = self.data_dir / 'images'
@@ -297,7 +289,7 @@ class BLIP2Tester:
             if torch.cuda.is_available() and self.encoder.clear_cache:
                 torch.cuda.empty_cache()
                 final_memory = torch.cuda.memory_allocated()
-                logger.info(f"Final GPU memory: {final_memory / 1e6:.2f} MB")
+                print(f"Final GPU memory: {final_memory / 1e6:.2f} MB")
             
             passed = len(scores) == len(test_queries)
             self.log_result("Memory Handling", passed, "Memory management OK")
@@ -305,14 +297,14 @@ class BLIP2Tester:
             
         except Exception as e:
             self.log_result("Memory Handling", False, f"Error: {str(e)}")
-            logger.exception(e)
+            import traceback; traceback.print_exc()
             return False
     
     def test_score_quality(self) -> bool:
         """Test 5: Validate score quality and consistency."""
-        logger.info("\n" + "="*60)
-        logger.info("TEST 5: Score Quality")
-        logger.info("="*60)
+        print("\n" + "="*60)
+        print("TEST 5: Score Quality")
+        print("="*60)
         
         if self.encoder is None:
             self.log_result("Score Quality", False, "Encoder not initialized")
@@ -335,7 +327,7 @@ class BLIP2Tester:
                 show_progress=False
             )
             
-            logger.info(f"Scores: {list(zip(queries, scores))}")
+            print(f"Scores: {list(zip(queries, scores))}")
             
             # Check scores are different and in valid range
             scores_valid = (
@@ -348,37 +340,37 @@ class BLIP2Tester:
             
         except Exception as e:
             self.log_result("Score Quality", False, f"Error: {str(e)}")
-            logger.exception(e)
+            import traceback; traceback.print_exc()
             return False
     
     def generate_report(self) -> None:
         """Generate final test report."""
-        logger.info("\n" + "="*60)
-        logger.info("TEST REPORT")
-        logger.info("="*60)
+        print("\n" + "="*60)
+        print("TEST REPORT")
+        print("="*60)
         
         total = len(self.results)
         passed = sum(1 for r in self.results if r['passed'])
         failed = total - passed
         
-        logger.info(f"\nTotal Tests: {total}")
-        logger.info(f"Passed: {passed}")
-        logger.info(f"Failed: {failed}")
-        logger.info(f"Success Rate: {100 * passed / total:.1f}%")
+        print(f"\nTotal Tests: {total}")
+        print(f"Passed: {passed}")
+        print(f"Failed: {failed}")
+        print(f"Success Rate: {100 * passed / total:.1f}%")
         
-        logger.info("\nDetailed Results:")
+        print("\nDetailed Results:")
         for result in self.results:
             status = "✓" if result['passed'] else "✗"
-            logger.info(f"  {status} {result['test']}: {result['message']}")
+            print(f"  {status} {result['test']}: {result['message']}")
         
-        logger.info("\n" + "="*60)
+        print("\n" + "="*60)
         
         if failed == 0:
-            logger.info("✓ ALL TESTS PASSED!")
+            print("✓ ALL TESTS PASSED!")
         else:
-            logger.warning(f"✗ {failed} TEST(S) FAILED")
+            print(f"✗ {failed} TEST(S) FAILED")
         
-        logger.info("="*60 + "\n")
+        print("="*60 + "\n")
     
     def run_all_tests(self) -> int:
         """
@@ -387,8 +379,8 @@ class BLIP2Tester:
         Returns:
             Exit code (0 = success, 1 = failure)
         """
-        logger.info("Starting BLIP-2 Cross-Encoder Test Suite")
-        logger.info("="*60)
+        print("Starting BLIP-2 Cross-Encoder Test Suite")
+        print("="*60)
         
         # Run tests
         tests = [
@@ -403,8 +395,8 @@ class BLIP2Tester:
             try:
                 test()
             except Exception as e:
-                logger.error(f"Test failed with exception: {e}")
-                logger.exception(e)
+                print(f"Test failed with exception: {e}")
+                import traceback; traceback.print_exc()
         
         # Generate report
         self.generate_report()
