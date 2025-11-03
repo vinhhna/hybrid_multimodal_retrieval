@@ -4,31 +4,41 @@ Simple guide to run this project on Kaggle.
 
 **⚠️ GPU Required**: Enable GPU (P100 or T4) in Kaggle notebook settings before running.
 
-## 🚀 Setup (Run Once)
+## 🚀 Setup for Notebooks (Run These First)
 
-Copy and run this in your Kaggle notebook:
+When importing any notebook from the `notebooks/` directory, **run these two cells first** to set up your Kaggle environment:
+
+### Cell 1: Clone Repository and Install Dependencies
 
 ```python
-# Remove old version (if exists) and clone fresh
+# KAGGLE ONLY: Clone repository and install dependencies
 !rm -rf hybrid_multimodal_retrieval
 !git clone https://github.com/vinhhna/hybrid_multimodal_retrieval.git
-
-# Navigate to project directory
 %cd hybrid_multimodal_retrieval
-
-# Install dependencies
 !pip install -q transformers accelerate open-clip-torch pyyaml tqdm pillow faiss-cpu
-
-# Install project
 !pip install -e .
-
-# Verify installation
-import torch
-print(f"✓ PyTorch: {torch.__version__}")
-print(f"✓ CUDA available: {torch.cuda.is_available()}")
-if torch.cuda.is_available():
-    print(f"✓ GPU: {torch.cuda.get_device_name(0)}")
 ```
+
+### Cell 2: Setup Data Paths
+
+```python
+# KAGGLE ONLY: Setup data paths
+from pathlib import Path
+
+# Set paths based on Kaggle dataset location
+IMAGES_DIR = Path('/kaggle/input/flickr30k/data/images')
+CAPTIONS_FILE = Path('/kaggle/input/flickr30k/data/results.csv')
+
+# Verify paths
+print(f"Images dir exists: {IMAGES_DIR.exists()} - {IMAGES_DIR}")
+print(f"Captions file exists: {CAPTIONS_FILE.exists()} - {CAPTIONS_FILE}")
+
+if IMAGES_DIR.exists():
+    num_images = len(list(IMAGES_DIR.glob('*.jpg')))
+    print(f"Found {num_images} images")
+```
+
+**Important:** Run both cells at the start of any notebook for Kaggle compatibility.
 
 ---
 
