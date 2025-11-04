@@ -409,9 +409,11 @@ def main():
         cross_encoder=cross_encoder,
         image_index=image_index,
         dataset=dataset,
-        k1=100,
-        k2=10,
-        batch_size=4
+        config={
+            'k1': 100,
+            'k2': 10,
+            'batch_size': 4
+        }
     )
     
     print(f"\n  ✓ Engine initialized")
