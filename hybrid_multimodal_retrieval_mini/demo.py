@@ -46,7 +46,7 @@ def main():
     test_image = results[0][0]  # Use first result from above
     print(f"Query image: {test_image}\n")
     
-    captions = engine.image_to_text(f'data/images/{test_image}', k=3)
+    captions = engine.image_to_text(f'/kaggle/input/flickr30k/data/images/{test_image}', k=3)
     for i, (caption, score) in enumerate(captions, 1):
         print(f"{i}. {caption} (score: {score:.4f})")
     
@@ -54,7 +54,7 @@ def main():
     print("\n=== Image-to-Image Search ===")
     print(f"Query image: {test_image}\n")
     
-    similar = engine.image_to_image(f'data/images/{test_image}', k=5)
+    similar = engine.image_to_image(f'/kaggle/input/flickr30k/data/images/{test_image}', k=5)
     for i, (img_name, score) in enumerate(similar, 1):
         print(f"{i}. {img_name} (score: {score:.4f})")
     
