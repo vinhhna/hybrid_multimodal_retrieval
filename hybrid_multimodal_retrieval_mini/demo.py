@@ -1,5 +1,5 @@
 """
-Simple demo of the multimodal search engine.
+Demo of multimodal and hybrid search.
 Run this after setting up the data and building indices.
 """
 
@@ -7,6 +7,8 @@ from src.dataset import Flickr30KDataset
 from src.encoder import CLIPEncoder
 from src.index import FAISSIndex
 from src.search import SearchEngine
+from src.reranker import BLIP2Reranker
+from src.hybrid_search import HybridSearchEngine
 
 
 def main():
@@ -28,7 +30,7 @@ def main():
     text_index = FAISSIndex()
     text_index.load('/kaggle/input/flickr30k/data/indices/text_index.faiss')
     
-    # Create search engine
+    # Create basic search engine
     print("\nInitializing search engine...")
     engine = SearchEngine(encoder, image_index, text_index, dataset)
     
@@ -41,21 +43,18 @@ def main():
     for i, (img_name, score) in enumerate(results, 1):
         print(f"{i}. {img_name} (score: {score:.4f})")
     
-    # Image-to-Text search
-    print("\n=== Image-to-Text Search ===")
-    test_image = results[0][0]  # Use first result from above
-    print(f"Query image: {test_image}\n")
+    # Hybrid search
+    print("\n\n=== Hybrid Search (CLIP + BLIP-2) ===")
+    print("Loading BLIP-2 re-ranker...")
+    reranker = BLIP2Reranker()
     
-    captions = engine.image_to_text(f'/kaggle/input/flickr30k/data/images/{test_image}', k=3)
-    for i, (caption, score) in enumerate(captions, 1):
-        print(f"{i}. {caption} (score: {score:.4f})")
+    hybrid_engine = HybridSearchEngine(encoder, reranker, image_index, dataset)
     
-    # Image-to-Image search
-    print("\n=== Image-to-Image Search ===")
-    print(f"Query image: {test_image}\n")
+    print(f"\nQuery: '{query}'")
+    hybrid_results = hybrid_engine.search(query, k1=50, k2=5)
     
-    similar = engine.image_to_image(f'/kaggle/input/flickr30k/data/images/{test_image}', k=5)
-    for i, (img_name, score) in enumerate(similar, 1):
+    print("\nTop 5 results after re-ranking:")
+    for i, (img_name, score) in enumerate(hybrid_results, 1):
         print(f"{i}. {img_name} (score: {score:.4f})")
     
     print("\n=== Demo Complete! ===")

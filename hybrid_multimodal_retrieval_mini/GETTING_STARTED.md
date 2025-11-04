@@ -38,10 +38,12 @@ Or open `demo.ipynb` in Jupyter to try interactive examples.
 - **src/dataset.py** - Loads images and captions
 - **src/encoder.py** - CLIP model for encoding images and text
 - **src/index.py** - FAISS for fast search
-- **src/search.py** - Main search engine
+- **src/search.py** - Basic search engine (CLIP only)
+- **src/reranker.py** - BLIP-2 re-ranker for better accuracy
+- **src/hybrid_search.py** - Two-stage hybrid search
 
 - **build_indices.py** - Run once to create search indices
-- **demo.py** - Example usage script
+- **demo.py** - Example usage script (includes hybrid search)
 - **demo.ipynb** - Interactive notebook demo
 
 ## Troubleshooting
