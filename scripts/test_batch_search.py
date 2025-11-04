@@ -76,11 +76,21 @@ def load_components():
     image_index.load(str(index_path))
     print(f"  ✓ Loaded index with {image_index.index.ntotal:,} vectors")
     
+    # Clear GPU cache before loading BLIP-2
+    if Path('/kaggle/input').exists():
+        import torch
+        torch.cuda.empty_cache()
+        print("\n  Cleared GPU cache before loading BLIP-2")
+    
     # 4. Load BLIP-2 cross-encoder
     print("\n[4/4] Loading BLIP-2 cross-encoder...")
+    # Use CPU for BLIP-2 on Kaggle to avoid OOM (CLIP already uses most GPU memory)
+    blip2_device = 'cpu' if Path('/kaggle/input').exists() else 'cuda'
+    print(f"  Using device: {blip2_device} (Kaggle uses CPU to avoid OOM)")
     cross_encoder = CrossEncoder(
         model_name='Salesforce/blip2-flan-t5-xl',
-        device='cuda'
+        device=blip2_device,
+        use_fp16=False if blip2_device == 'cpu' else True
     )
     print(f"  ✓ Model: {cross_encoder.model_name}")
     print(f"  ✓ Device: {cross_encoder.device}")
