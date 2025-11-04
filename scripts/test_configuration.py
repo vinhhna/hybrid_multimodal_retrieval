@@ -74,11 +74,12 @@ def load_components():
     image_index.load(str(index_path))
     print(f"  ✓ Loaded {image_index.index.ntotal:,} vectors")
     
-    # Load BLIP-2 cross-encoder
+    # 4. Load BLIP-2 cross-encoder
     print("\n[4/4] Loading BLIP-2 cross-encoder...")
     cross_encoder = CrossEncoder(
-        model_name='Salesforce/blip2-flan-t5-xl',
-        device='cuda'
+        model_name='Salesforce/blip2-opt-2.7b',
+        device='cuda',
+        use_fp16=True
     )
     print(f"  ✓ Model: {cross_encoder.model_name}")
     

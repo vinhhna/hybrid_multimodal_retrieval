@@ -292,7 +292,7 @@ stage1:
   k1: 100
   device: "cuda"
 stage2:
-  model: "Salesforce/blip2-flan-t5-xl"
+  model: "Salesforce/blip2-opt-2.7b"
   k2: 10
   batch_size: 4
   use_fp16: true

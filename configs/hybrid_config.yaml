@@ -19,8 +19,8 @@ stage1:
 # Stage 2: BLIP-2 Cross-Encoder (Accurate Re-ranking)
 stage2:
   # BLIP-2 model name
-  # Options: 'Salesforce/blip2-opt-2.7b', 'Salesforce/blip2-flan-t5-xl'
-  model: "Salesforce/blip2-flan-t5-xl"
+  # Options: 'Salesforce/blip2-opt-2.7b' (recommended, 3GB), 'Salesforce/blip2-flan-t5-xl' (15GB)
+  model: "Salesforce/blip2-opt-2.7b"
   
   # Number of final results to return after re-ranking
   # Typical range: 5-20

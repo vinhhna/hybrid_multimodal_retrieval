@@ -102,7 +102,8 @@ def load_components(paths, verbose=True):
     if verbose:
         print("\n2. Loading BLIP-2 CrossEncoder...")
     cross_encoder = CrossEncoder(
-        model_name='Salesforce/blip2-flan-t5-xl',
+        model_name='Salesforce/blip2-opt-2.7b',
+        device='cuda',
         use_fp16=True
     )
     if verbose:

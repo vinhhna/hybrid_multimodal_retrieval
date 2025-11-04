@@ -77,7 +77,7 @@ class BLIP2Tester:
         
         # Load the default model
         model_options = [
-            ('Salesforce/blip2-flan-t5-xl', 'Default model - fits P100 16GB GPU'),
+            ('Salesforce/blip2-opt-2.7b', 'Default model - fits P100 16GB GPU alongside CLIP (~3GB)'),
         ]
         
         for model_name, description in model_options:

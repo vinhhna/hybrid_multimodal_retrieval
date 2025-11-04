@@ -84,13 +84,11 @@ def load_components():
     
     # 4. Load BLIP-2 cross-encoder
     print("\n[4/4] Loading BLIP-2 cross-encoder...")
-    # Use CPU for BLIP-2 on Kaggle to avoid OOM (CLIP already uses most GPU memory)
-    blip2_device = 'cpu' if Path('/kaggle/input').exists() else 'cuda'
-    print(f"  Using device: {blip2_device} (Kaggle uses CPU to avoid OOM)")
+    # Use GPU for BLIP-2 (smaller opt-2.7b model fits alongside CLIP)
     cross_encoder = CrossEncoder(
-        model_name='Salesforce/blip2-flan-t5-xl',
-        device=blip2_device,
-        use_fp16=False if blip2_device == 'cpu' else True
+        model_name='Salesforce/blip2-opt-2.7b',
+        device='cuda',
+        use_fp16=True
     )
     print(f"  ✓ Model: {cross_encoder.model_name}")
     print(f"  ✓ Device: {cross_encoder.device}")

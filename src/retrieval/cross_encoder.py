@@ -52,7 +52,7 @@ class CrossEncoder:
     
     def __init__(
         self,
-        model_name: str = 'Salesforce/blip2-flan-t5-xl',
+        model_name: str = 'Salesforce/blip2-opt-2.7b',
         config_path: Optional[Union[str, Path]] = None,
         device: Optional[Union[str, torch.device]] = None,
         use_fp16: bool = True
@@ -61,8 +61,8 @@ class CrossEncoder:
         Initialize BLIP-2 cross-encoder.
         
         Args:
-            model_name: Hugging Face model ID (default: 'Salesforce/blip2-flan-t5-xl')
-                       Using BLIP-2 FlanT5-XL model (~15GB, fits P100 16GB GPU)
+            model_name: Hugging Face model ID (default: 'Salesforce/blip2-opt-2.7b')
+                       Using BLIP-2 OPT-2.7B model (~3GB with FP16, fits P100 16GB GPU)
             config_path: Path to YAML config file
             device: Device to use ('cuda', 'cpu', or torch.device)
             use_fp16: Use mixed precision (FP16) for efficiency

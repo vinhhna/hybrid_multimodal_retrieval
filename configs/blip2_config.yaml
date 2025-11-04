@@ -5,8 +5,8 @@
 # Model configuration
 model:
   name: "blip2"
-  # Using BLIP-2 FlanT5-XL (~15GB, fits P100 16GB GPU)
-  pretrained: "Salesforce/blip2-flan-t5-xl"
+  # Using BLIP-2 OPT-2.7B (~3GB with FP16, fits P100 16GB GPU alongside CLIP)
+  pretrained: "Salesforce/blip2-opt-2.7b"
   device: "cuda"  # or "cpu" for fallback
   cache_dir: "models/blip2"  # Local cache for model weights
 
