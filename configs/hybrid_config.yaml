@@ -1,0 +1,141 @@
+# Hybrid Search Configuration
+# This file defines the configuration for the hybrid multimodal retrieval system
+
+# Stage 1: CLIP Bi-Encoder (Fast Retrieval)
+stage1:
+  # CLIP model name
+  # Options: 'ViT-B-32', 'ViT-B-16', 'ViT-L-14'
+  model: "ViT-B-32"
+  
+  # Number of candidates to retrieve from FAISS index
+  # Higher values improve recall but increase Stage 2 latency
+  # Typical range: 50-200
+  k1: 100
+  
+  # Device for CLIP model
+  # Options: 'cuda', 'cpu'
+  device: "cuda"
+
+# Stage 2: BLIP-2 Cross-Encoder (Accurate Re-ranking)
+stage2:
+  # BLIP-2 model name
+  # Options: 'Salesforce/blip2-opt-2.7b', 'Salesforce/blip2-flan-t5-xl'
+  model: "Salesforce/blip2-flan-t5-xl"
+  
+  # Number of final results to return after re-ranking
+  # Typical range: 5-20
+  k2: 10
+  
+  # Batch size for BLIP-2 processing
+  # Higher values are faster but use more GPU memory
+  # Options: 2, 4, 8, 16
+  batch_size: 4
+  
+  # Use FP16 (half precision) for faster inference
+  use_fp16: true
+  
+  # Device for BLIP-2 model
+  # Options: 'cuda', 'cpu'
+  device: "cuda"
+
+# Performance Configuration
+performance:
+  # Enable caching for repeated queries
+  # Cache stores query results in memory for faster retrieval
+  use_cache: false
+  
+  # Maximum cache size (number of queries)
+  # Set to 0 for unlimited cache
+  max_cache_size: 1000
+  
+  # Show progress bars for long operations
+  show_progress: true
+  
+  # Enable memory optimization
+  # Automatically clears GPU cache between operations
+  optimize_memory: true
+
+# Batch Search Configuration
+batch_search:
+  # Batch size for Stage 1 (CLIP) encoding
+  # Process multiple queries in parallel
+  # Higher values are faster but use more GPU memory
+  stage1_batch_size: 32
+  
+  # Batch size for Stage 2 (BLIP-2) re-ranking
+  # Batch candidates across all queries
+  stage2_batch_size: 8
+
+# Image-to-Image Search Configuration
+image_to_image:
+  # Number of similar images to retrieve
+  k: 10
+  
+  # Use hybrid re-ranking for image-to-image search
+  # If false, uses CLIP-only similarity
+  use_hybrid: false
+
+# Advanced Configuration
+advanced:
+  # Score fusion method for combining CLIP and BLIP-2 scores
+  # Options: 'replace' (use only BLIP-2), 'weighted' (combine both), 'rank_fusion'
+  score_fusion: "replace"
+  
+  # Weights for score fusion (only used if score_fusion='weighted')
+  clip_weight: 0.3
+  blip2_weight: 0.7
+  
+  # Normalize scores before fusion
+  normalize_scores: true
+  
+  # Diversity re-ranking (Maximal Marginal Relevance)
+  # Reduces redundancy in results
+  use_diversity: false
+  diversity_lambda: 0.7
+
+# Logging Configuration
+logging:
+  # Log level: 'DEBUG', 'INFO', 'WARNING', 'ERROR'
+  level: "INFO"
+  
+  # Enable detailed timing logs
+  log_timings: true
+  
+  # Enable statistics tracking
+  track_statistics: true
+
+# Presets for Different Use Cases
+# Uncomment a preset to use it (overrides above settings)
+
+# Fast Mode - Prioritize speed over accuracy
+# stage1:
+#   k1: 50
+# stage2:
+#   k2: 5
+#   batch_size: 8
+# performance:
+#   use_cache: true
+
+# Accurate Mode - Prioritize accuracy over speed
+# stage1:
+#   k1: 200
+# stage2:
+#   k2: 20
+#   batch_size: 2
+
+# Balanced Mode - Balance between speed and accuracy (default)
+# stage1:
+#   k1: 100
+# stage2:
+#   k2: 10
+#   batch_size: 4
+
+# Memory-Efficient Mode - For limited GPU memory (8GB)
+# stage1:
+#   k1: 50
+# stage2:
+#   k2: 5
+#   batch_size: 2
+#   use_fp16: true
+# performance:
+#   optimize_memory: true
