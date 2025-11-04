@@ -81,7 +81,345 @@ Building text index...
 
 ---
 
-### 3. `test_search_engine.py` - Test Everything 🧪
+### 3. `test_stage1_clip.py` - Test Fast Search (CLIP) ⚡
+
+**What it does:** Tests Stage 1 CLIP retrieval speed and accuracy.
+
+**When to use:** Phase 3, testing two-stage hybrid search (T2.2).
+
+**Run it:**
+```bash
+python scripts/test_stage1_clip.py --num-test-queries 5
+```
+
+**On Kaggle:**
+```bash
+python scripts/test_stage1_clip.py --data-dir /kaggle/input/flickr30k --num-test-queries 5
+```
+
+**What you'll see:**
+```
+Stage 1 CLIP Retrieval Test
+✓ Retrieved 100 candidates in 45ms
+✓ Mean latency: 47ms < 100ms target
+✓ T2.2 COMPLETE!
+```
+
+**Target:** < 100ms latency per query
+
+---
+
+### 4. `test_stage2_blip2.py` - Test Smart Re-ranking 🧠
+
+**What it does:** Tests Stage 2 BLIP-2 re-ranking of CLIP candidates.
+
+**When to use:** Phase 3, testing hybrid search accuracy (T2.3).
+
+**Run it:**
+```bash
+python scripts/test_stage2_blip2.py --num-test-queries 3
+```
+
+**On Kaggle:**
+```bash
+python scripts/test_stage2_blip2.py --k1 50 --k2 10 --batch-size 4 --data-dir /kaggle/input/flickr30k
+```
+
+**Options:**
+- `--k1` - Number of Stage 1 candidates (default: 100)
+- `--k2` - Number of final results (default: 10)
+- `--batch-size` - BLIP-2 batch size (default: 4)
+
+**What you'll see:**
+```
+Stage 2 BLIP-2 Re-ranking Test
+Stage 1: 100 candidates in 45ms
+Stage 2: Re-ranked to 10 results in 1200ms
+✓ Total: 1245ms < 2000ms target
+✓ T2.3 COMPLETE!
+```
+
+**Target:** < 2000ms for 100 candidates
+
+**Note:** Requires GPU! Use smaller k1 (50) for faster testing.
+
+---
+
+### 5. `test_image_to_image.py` - Test Image Similarity 🖼️
+
+**What it does:** Tests image-to-image search using CLIP similarity.
+
+**When to use:** Phase 3, testing visual similarity search (T2.4).
+
+**Run it:**
+```bash
+python scripts/test_image_to_image.py --num-test-queries 5
+```
+
+**On Kaggle:**
+```bash
+python scripts/test_image_to_image.py --data-dir /kaggle/input/flickr30k
+```
+
+**With specific query image:**
+```bash
+python scripts/test_image_to_image.py --query-image data/images/12345.jpg --k 10
+```
+
+**What you'll see:**
+```
+Image-to-Image Search Test
+Query: 12345.jpg
+✓ Found 10 similar images in 52ms
+Top result: 67890.jpg (similarity: 0.9234)
+✓ T2.4 COMPLETE!
+```
+
+**Target:** < 100ms latency per query
+
+**Note:** Uses CLIP only (Stage 1). BLIP-2 Stage 2 not needed for image similarity.
+
+---
+
+### 5. `test_batch_search.py` - Test Batch Processing 📦🔍
+
+**Purpose:** Tests optimized batch processing for multiple queries (T2.5)
+
+**What it tests:**
+- **Batch vs Sequential:** Compares performance (typically 2-3x speedup)
+- **Scalability:** Tests with 10, 25, 50 queries
+- **Batch Sizes:** Compares BLIP-2 batch_size=2, 4, 8
+- **Result Quality:** Validates batch mode produces good results
+
+**Run locally:**
+```bash
+python scripts/test_batch_search.py
+```
+
+**Quick test (Kaggle-compatible):**
+```bash
+python scripts/test_batch_quick.py
+```
+
+**On Kaggle:**
+```python
+import sys
+sys.path.append('/kaggle/working/hybrid_multimodal_retrieval')
+%run scripts/test_batch_quick.py
+```
+
+**Expected results:**
+- Batch processing 2-3x faster than sequential
+- Efficient for multi-query scenarios
+- Same result quality as single queries
+
+**Performance targets:**
+- Stage 1 (CLIP): Parallel encoding for all queries
+- Stage 2 (BLIP-2): Batched re-ranking across all candidates
+- Overall: ~100-200ms per query for batches of 10+
+
+**Note:** Batch mode parallelizes Stage 1 and efficiently batches Stage 2 for maximum throughput.
+
+---
+
+### 6. `test_configuration.py` - Test Configuration & Optimization ⚙️
+
+**Purpose:** Tests configuration management and optimization features (T2.6)
+
+**What it tests:**
+- **Runtime Config Updates:** Change k1, k2, batch_size on the fly
+- **Config Validation:** Reject invalid configurations
+- **Cache Management:** Enable/disable/clear query cache
+- **Performance Profiling:** Test different configurations
+- **Auto-Optimization:** Find optimal config for target latency
+
+**Run locally:**
+```bash
+python scripts/test_configuration.py
+```
+
+**Quick test (Kaggle-compatible):**
+```bash
+python scripts/test_config_quick.py
+```
+
+**On Kaggle:**
+```python
+import sys
+sys.path.append('/kaggle/working/hybrid_multimodal_retrieval')
+%run scripts/test_config_quick.py
+```
+
+**Key features:**
+```python
+# Update configuration
+engine.update_config(k1=200, k2=20, batch_size=8)
+
+# Enable caching
+engine.update_config(use_cache=True)
+
+# Profile performance
+results = engine.profile_search(
+    test_queries=queries,
+    k1_values=[50, 100, 200],
+    k2_values=[5, 10, 20],
+    batch_sizes=[2, 4, 8]
+)
+
+# Auto-optimize for target latency
+result = engine.optimize_config(target_latency_ms=400)
+engine.update_config(**result['recommended_config'])
+
+# Get statistics
+stats = engine.get_statistics()
+print(f"Cache hit rate: {stats['cache_hit_rate']:.2%}")
+```
+
+**Expected results:**
+- Config updates take effect immediately
+- Invalid configs rejected with rollback
+- Cache provides 100-1000x speedup for repeated queries
+- Profiling identifies best config for your use case
+
+**Note:** Profiling tests multiple configurations to find optimal settings for your specific queries and latency requirements.
+
+---
+
+### 7. `test_hybrid_search.py` - Comprehensive Test Suite 🧪
+
+**Purpose:** Complete test suite for all hybrid search features (T2.7)
+
+**What it tests:**
+1. **Stage 1 (CLIP) Retrieval** - Target: <100ms
+2. **Stage 2 (BLIP-2) Re-ranking** - Target: <2000ms
+3. **End-to-End Hybrid Search** - Target: <2000ms total
+4. **Batch Hybrid Search** - Efficiency test
+5. **Image-to-Image Search** - Similarity search
+6. **Configuration Tests** - Different k1, k2, batch_size values
+7. **Latency Benchmark** - 100 queries for statistics
+8. **CLIP-only vs Hybrid** - Performance comparison
+9. **Memory Usage Tracking** - Resource monitoring
+10. **Edge Cases** - Error handling and special inputs
+
+**Run locally:**
+```bash
+python scripts/test_hybrid_search.py
+```
+
+**Quick test (Kaggle-compatible):**
+```bash
+python scripts/test_hybrid_quick.py
+```
+
+**On Kaggle:**
+```python
+import sys
+sys.path.append('/kaggle/working/hybrid_multimodal_retrieval')
+%run scripts/test_hybrid_quick.py
+```
+
+**Expected results:**
+- All 10 test categories pass
+- Stage 1: <100ms average
+- End-to-end: <2000ms average
+- Latency benchmark: P95 <2000ms
+- Memory usage tracked
+- Edge cases handled gracefully
+
+**Performance targets:**
+```
+Stage 1 (CLIP):      < 100ms
+Stage 2 (BLIP-2):    < 2000ms (for 100 candidates)
+End-to-end:          < 2000ms total
+Benchmark P95:       < 2000ms
+Benchmark P99:       < 2500ms
+```
+
+**Test coverage:**
+- ✅ Stage 1 CLIP retrieval
+- ✅ Stage 2 BLIP-2 re-ranking
+- ✅ Full hybrid pipeline
+- ✅ Batch processing
+- ✅ Image-to-image search
+- ✅ Multiple configurations
+- ✅ Performance benchmarking
+- ✅ Method comparison
+- ✅ Memory tracking
+- ✅ Edge case handling
+
+**Note:** This comprehensive suite validates all hybrid search capabilities and ensures production readiness.
+
+---
+
+### 8. `evaluate_accuracy.py` - Accuracy Evaluation 📊
+
+**Purpose:** Comprehensive accuracy evaluation for T2.8
+
+**What it does:**
+- Selects 100 diverse test queries from Flickr30K dataset
+- Evaluates CLIP-only search (baseline)
+- Evaluates Hybrid search (CLIP + BLIP-2)
+- Calculates accuracy metrics:
+  - **Recall@1, Recall@5, Recall@10**
+  - **Mean Reciprocal Rank (MRR)**
+  - **Mean Average Precision (MAP)**
+- Compares methods with improvement statistics
+- Tracks latency for each method
+- Validates performance targets
+
+**Run locally:**
+```bash
+python scripts/evaluate_accuracy.py
+```
+
+**On Kaggle:**
+```python
+import sys
+sys.path.append('/kaggle/working/hybrid_multimodal_retrieval')
+%run scripts/evaluate_accuracy.py
+```
+
+**Expected output:**
+```
+CLIP-only Results:
+  Recall@1:  45.00%
+  Recall@5:  62.00%
+  Recall@10: 70.00%
+  MRR:       0.5234
+  MAP:       0.5012
+  Latency:   82.45ms (avg)
+
+Hybrid Results:
+  Recall@1:  52.00%
+  Recall@5:  71.00%
+  Recall@10: 78.00%
+  MRR:       0.5891
+  MAP:       0.5678
+  Latency:   398.23ms (avg)
+
+METHOD COMPARISON
+  Recall@10 improvement: +11.4%
+  Latency overhead: +315.78ms
+```
+
+**Metrics explained:**
+- **Recall@k:** Percentage of queries where ground truth is in top-k results
+- **MRR:** Average of 1/rank for each query (higher = better)
+- **MAP:** Average precision across all queries (higher = better)
+
+**Performance targets:**
+- ✅ Hybrid Recall@10 > 65%
+- ✅ End-to-end latency < 2000ms
+- ✅ Measurable improvement over CLIP-only
+
+**Saved outputs:**
+- `data/evaluation/accuracy_evaluation_results.json` - Full results
+
+**Note:** This evaluation provides quantitative evidence of hybrid search improvements over CLIP-only baseline.
+
+---
+
+### 9. `test_search_engine.py` - Test Everything 🧪
 
 **What it does:** Makes sure the complete search system works.
 

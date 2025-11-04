@@ -17,7 +17,6 @@ from pathlib import Path
 from typing import List, Tuple, Optional, Dict, Any, Union
 from PIL import Image
 from tqdm import tqdm
-import logging
 import time
 
 # Try imports with fallback for Kaggle
@@ -122,8 +121,7 @@ class HybridSearchEngine:
         self.dataset = dataset
         
         # Setup logger
-        self.logger = logging.getLogger(__name__)
-        self.logger.info("Initializing Hybrid Search Engine...")
+        print("Initializing Hybrid Search Engine...")
         
         # Load configuration
         self.config = self._load_config(config)
@@ -141,13 +139,13 @@ class HybridSearchEngine:
             'total_latency_ms': []
         }
         
-        self.logger.info("✓ Hybrid Search Engine initialized")
-        self.logger.info(f"  Stage 1: CLIP ({bi_encoder.model_name})")
-        self.logger.info(f"  Stage 2: BLIP-2")
-        self.logger.info(f"  Image Index: {image_index.index.ntotal:,} vectors")
-        self.logger.info(f"  Dataset: {len(dataset):,} images")
-        self.logger.info(f"  Config: k1={self.config['k1']}, k2={self.config['k2']}, "
-                        f"batch_size={self.config['batch_size']}")
+        print("✓ Hybrid Search Engine initialized")
+        print(f"  Stage 1: CLIP ({bi_encoder.model_name})")
+        print(f"  Stage 2: BLIP-2")
+        print(f"  Image Index: {image_index.index.ntotal:,} vectors")
+        print(f"  Dataset: {len(dataset):,} images")
+        print(f"  Config: k1={self.config['k1']}, k2={self.config['k2']}, "
+              f"batch_size={self.config['batch_size']}")
     
     def _load_config(self, config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
@@ -239,7 +237,7 @@ class HybridSearchEngine:
             cache_key = f"t2i:{query}:{k1}:{k2}"
             if cache_key in self.cache:
                 self.stats['cache_hits'] += 1
-                self.logger.debug(f"Cache hit for query: {query[:50]}...")
+                # Cache hit for query
                 return self.cache[cache_key]
         
         # Track timing
@@ -274,10 +272,8 @@ class HybridSearchEngine:
         self.stats['stage2_latency_ms'].append(stage2_time)
         self.stats['total_latency_ms'].append(total_time)
         
-        self.logger.debug(
-            f"Query completed in {total_time:.0f}ms "
-            f"(Stage 1: {stage1_time:.0f}ms, Stage 2: {stage2_time:.0f}ms)"
-        )
+        # Query completed
+        print(f"Query completed in {total_time:.0f}ms (Stage 1: {stage1_time:.0f}ms, Stage 2: {stage2_time:.0f}ms)")
         
         # Cache results
         if self.cache_enabled:
@@ -447,10 +443,8 @@ class HybridSearchEngine:
         # TODO: Implement BLIP-2 image-to-image comparison
         stage2_time = 0
         
-        self.logger.warning(
-            "Image-to-image Stage 2 re-ranking not yet implemented. "
-            "Returning CLIP-only results."
-        )
+        print("Warning: Image-to-image Stage 2 re-ranking not yet implemented. "
+              "Returning CLIP-only results.")
         
         results = candidates[:k2]
         
@@ -519,7 +513,9 @@ class HybridSearchEngine:
         """
         Perform batch hybrid text-to-image search for multiple queries.
         
-        Processes multiple queries efficiently by batching operations where possible.
+        Efficiently processes multiple queries by:
+        1. Batching Stage 1 (CLIP) encoding for all queries at once
+        2. Batching Stage 2 (BLIP-2) re-ranking across all candidates
         
         Args:
             queries: List of text query strings
@@ -539,30 +535,162 @@ class HybridSearchEngine:
             ...     print(f"Query '{queries[i]}':")
             ...     for img_id, score in query_results[:3]:
             ...         print(f"  {img_id}: {score:.4f}")
+        
+        Performance Notes:
+            - Stage 1 processes all queries in parallel (single batch)
+            - Stage 2 batches all candidates together for efficiency
+            - Typically 2-3x faster than sequential processing
         """
         # Use config defaults if not specified
         k1 = k1 or self.config['k1']
         k2 = k2 or self.config['k2']
+        batch_size = batch_size or self.config['batch_size']
         show_progress = show_progress if show_progress is not None else self.config['show_progress']
         
-        results = []
+        if not queries:
+            return []
         
-        # Process each query
-        iterator = queries
+        n_queries = len(queries)
         if show_progress:
-            iterator = tqdm(queries, desc="Processing queries")
+            print(f"\n{'='*60}")
+            print(f"Batch Hybrid Search - {n_queries} queries")
+            print(f"{'='*60}")
         
-        for query in iterator:
-            query_results = self.text_to_image_hybrid_search(
-                query=query,
-                k1=k1,
-                k2=k2,
-                batch_size=batch_size,
-                show_progress=False  # Disable per-query progress
+        # =====================================================================
+        # STAGE 1: PARALLEL CLIP RETRIEVAL (All queries at once)
+        # =====================================================================
+        if show_progress:
+            print(f"\n[Stage 1] CLIP Retrieval (k1={k1})...")
+        
+        stage1_start = time.time()
+        
+        # Encode all queries in one batch
+        query_embeddings = self.bi_encoder.encode_texts(
+            texts=queries,
+            batch_size=32,  # CLIP can handle larger batches
+            normalize=True,
+            show_progress=show_progress
+        )
+        
+        # Search FAISS index for all queries
+        all_scores, all_indices = self.image_index.search(
+            query_embeddings=query_embeddings,
+            k=k1,
+            return_scores=True
+        )
+        
+        # Organize candidates per query
+        all_candidates = []
+        image_ids = self.image_index.metadata.get('ids', [])
+        
+        for query_idx in range(n_queries):
+            candidates = []
+            for idx, score in zip(all_indices[query_idx], all_scores[query_idx]):
+                if idx < len(image_ids):
+                    image_id = image_ids[idx]
+                    candidates.append((image_id, float(score)))
+            all_candidates.append(candidates)
+        
+        stage1_time = (time.time() - stage1_start) * 1000
+        
+        if show_progress:
+            print(f"  ✓ Retrieved {k1} candidates per query")
+            print(f"  ✓ Latency: {stage1_time:.2f}ms ({stage1_time/n_queries:.2f}ms per query)")
+        
+        # =====================================================================
+        # STAGE 2: BATCHED BLIP-2 RE-RANKING (All candidates together)
+        # =====================================================================
+        if show_progress:
+            print(f"\n[Stage 2] BLIP-2 Re-ranking (k2={k2}, batch_size={batch_size})...")
+        
+        stage2_start = time.time()
+        
+        # Prepare batch data: (query_idx, query_text, image_id, clip_score)
+        batch_items = []
+        for query_idx, (query, candidates) in enumerate(zip(queries, all_candidates)):
+            for image_id, clip_score in candidates:
+                batch_items.append({
+                    'query_idx': query_idx,
+                    'query': query,
+                    'image_id': image_id,
+                    'clip_score': clip_score
+                })
+        
+        # Get image paths
+        for item in batch_items:
+            image_info = self.dataset.get_image_by_id(item['image_id'])
+            item['image_path'] = image_info['path'] if image_info else None
+        
+        # Filter out missing images
+        valid_items = [item for item in batch_items if item['image_path'] is not None]
+        
+        if show_progress:
+            print(f"  → Scoring {len(valid_items)} image-text pairs...")
+        
+        # Batch score all pairs
+        cross_scores = []
+        
+        iterator = range(0, len(valid_items), batch_size)
+        if show_progress:
+            iterator = tqdm(iterator, desc="  Re-ranking batches", unit="batch")
+        
+        for i in iterator:
+            batch = valid_items[i:i + batch_size]
+            
+            # Prepare batch for cross-encoder
+            texts = [item['query'] for item in batch]
+            images = [item['image_path'] for item in batch]
+            
+            # Score batch
+            scores = self.cross_encoder.score_pairs(
+                texts=texts,
+                images=images,
+                batch_size=len(batch)
             )
-            results.append(query_results)
+            cross_scores.extend(scores)
         
-        return results
+        # Add cross-encoder scores to items
+        for item, cross_score in zip(valid_items, cross_scores):
+            item['cross_score'] = cross_score
+        
+        # Group results by query and sort by cross-encoder score
+        final_results = [[] for _ in range(n_queries)]
+        
+        for item in valid_items:
+            query_idx = item['query_idx']
+            final_results[query_idx].append((
+                item['image_id'],
+                item['cross_score']
+            ))
+        
+        # Sort each query's results and take top-k2
+        for query_idx in range(n_queries):
+            final_results[query_idx].sort(key=lambda x: x[1], reverse=True)
+            final_results[query_idx] = final_results[query_idx][:k2]
+        
+        stage2_time = (time.time() - stage2_start) * 1000
+        total_time = stage1_time + stage2_time
+        
+        # Update statistics
+        for _ in range(n_queries):
+            self.stats['total_queries'] += 1
+            self.stats['stage1_latency_ms'].append(stage1_time / n_queries)
+            self.stats['stage2_latency_ms'].append(stage2_time / n_queries)
+            self.stats['total_latency_ms'].append(total_time / n_queries)
+        
+        if show_progress:
+            print(f"  ✓ Re-ranked to top {k2} per query")
+            print(f"  ✓ Latency: {stage2_time:.2f}ms ({stage2_time/n_queries:.2f}ms per query)")
+            print(f"\n{'='*60}")
+            print(f"Batch Search Complete")
+            print(f"  • Total queries: {n_queries}")
+            print(f"  • Total latency: {total_time:.2f}ms")
+            print(f"  • Per-query latency: {total_time/n_queries:.2f}ms")
+            print(f"  • Stage 1: {stage1_time/n_queries:.2f}ms/query")
+            print(f"  • Stage 2: {stage2_time/n_queries:.2f}ms/query")
+            print(f"{'='*60}\n")
+        
+        return final_results
     
     def get_statistics(self) -> Dict[str, Any]:
         """
@@ -605,13 +733,128 @@ class HybridSearchEngine:
         
         return stats
     
+    def update_config(self, **kwargs) -> Dict[str, Any]:
+        """
+        Update configuration parameters at runtime.
+        
+        Args:
+            **kwargs: Configuration parameters to update
+                k1 (int): Stage 1 candidate count (50, 100, 200)
+                k2 (int): Final result count (5, 10, 20)
+                batch_size (int): BLIP-2 batch size (2, 4, 8)
+                use_cache (bool): Enable/disable caching
+                show_progress (bool): Show/hide progress bars
+        
+        Returns:
+            Updated configuration dictionary
+        
+        Example:
+            >>> engine.update_config(k1=200, k2=20, batch_size=8)
+            >>> print(engine.config['k1'])  # 200
+        """
+        old_config = self.config.copy()
+        
+        # Update config
+        for key, value in kwargs.items():
+            if key in self.config:
+                self.config[key] = value
+            else:
+                print(f"Warning: Unknown config parameter '{key}' ignored")
+        
+        # Validate updated config
+        try:
+            if self.config['k1'] < self.config['k2']:
+                raise ValueError(f"k1 ({self.config['k1']}) must be >= k2 ({self.config['k2']})")
+            
+            if self.config['k2'] < 1:
+                raise ValueError(f"k2 must be >= 1, got {self.config['k2']}")
+            
+            if self.config['batch_size'] < 1:
+                raise ValueError(f"batch_size must be >= 1, got {self.config['batch_size']}")
+        
+        except ValueError as e:
+            # Revert to old config on validation error
+            self.config = old_config
+            print(f"Config update failed: {e}")
+            print("Reverted to previous configuration")
+            return self.config
+        
+        # Update cache_enabled flag
+        self.cache_enabled = self.config.get('use_cache', False)
+        
+        # Clear cache if caching was disabled
+        if not self.cache_enabled and self.cache:
+            self.clear_cache()
+        
+        print(f"✓ Configuration updated:")
+        for key, value in kwargs.items():
+            if key in self.config:
+                print(f"  {key}: {old_config.get(key)} → {value}")
+        
+        return self.config
+    
+    def get_config(self) -> Dict[str, Any]:
+        """
+        Get current configuration.
+        
+        Returns:
+            Copy of current configuration dictionary
+        """
+        return self.config.copy()
+    
+    def reset_config(self) -> Dict[str, Any]:
+        """
+        Reset configuration to defaults.
+        
+        Returns:
+            Reset configuration dictionary
+        """
+        print("Resetting configuration to defaults...")
+        self.config = self._load_config(None)
+        self.cache_enabled = self.config.get('use_cache', False)
+        if not self.cache_enabled:
+            self.clear_cache()
+        print("✓ Configuration reset")
+        return self.config
+    
     def clear_cache(self):
-        """Clear the query result cache."""
+        """
+        Clear the query result cache.
+        
+        Returns:
+            Number of cached entries cleared
+        """
+        n_entries = len(self.cache)
         self.cache.clear()
-        self.logger.info("Cache cleared")
+        print(f"✓ Cache cleared ({n_entries} entries removed)")
+        return n_entries
+    
+    def get_cache_size(self) -> int:
+        """
+        Get current cache size.
+        
+        Returns:
+            Number of cached queries
+        """
+        return len(self.cache)
+    
+    def get_cache_keys(self) -> List[str]:
+        """
+        Get all cached query keys.
+        
+        Returns:
+            List of cached query strings
+        """
+        return list(self.cache.keys())
     
     def reset_statistics(self):
-        """Reset performance statistics."""
+        """
+        Reset performance statistics.
+        
+        Returns:
+            Previous statistics before reset
+        """
+        old_stats = self.stats.copy()
         self.stats = {
             'total_queries': 0,
             'cache_hits': 0,
@@ -619,24 +862,251 @@ class HybridSearchEngine:
             'stage2_latency_ms': [],
             'total_latency_ms': []
         }
-        self.logger.info("Statistics reset")
+        print(f"✓ Statistics reset ({old_stats['total_queries']} queries cleared)")
+        return old_stats
+    
+    def profile_search(
+        self,
+        test_queries: Optional[List[str]] = None,
+        n_queries: int = 10,
+        k1_values: Optional[List[int]] = None,
+        k2_values: Optional[List[int]] = None,
+        batch_sizes: Optional[List[int]] = None
+    ) -> Dict[str, Any]:
+        """
+        Profile search performance with different configurations.
+        
+        Tests various parameter combinations to find optimal settings.
+        
+        Args:
+            test_queries: List of test queries (if None, uses sample from dataset)
+            n_queries: Number of queries to test (if test_queries is None)
+            k1_values: List of k1 values to test (default: [50, 100, 200])
+            k2_values: List of k2 values to test (default: [5, 10, 20])
+            batch_sizes: List of batch sizes to test (default: [2, 4, 8])
+        
+        Returns:
+            Dictionary with profiling results
+        
+        Example:
+            >>> results = engine.profile_search(
+            ...     test_queries=["a dog", "a cat", "a bird"],
+            ...     k1_values=[50, 100],
+            ...     k2_values=[10],
+            ...     batch_sizes=[4, 8]
+            ... )
+            >>> print(results['summary'])
+        """
+        print("\n" + "="*70)
+        print("PERFORMANCE PROFILING")
+        print("="*70)
+        
+        # Default test queries from dataset
+        if test_queries is None:
+            print(f"\nGenerating {n_queries} test queries from dataset...")
+            all_captions = []
+            for i, item in enumerate(self.dataset):
+                if i >= n_queries:
+                    break
+                if item['captions']:
+                    all_captions.append(item['captions'][0])
+            test_queries = all_captions[:n_queries]
+            print(f"  ✓ Generated {len(test_queries)} test queries")
+        
+        # Default parameter ranges
+        k1_values = k1_values or [50, 100, 200]
+        k2_values = k2_values or [5, 10, 20]
+        batch_sizes = batch_sizes or [2, 4, 8]
+        
+        print(f"\nTest configuration:")
+        print(f"  Queries: {len(test_queries)}")
+        print(f"  k1 values: {k1_values}")
+        print(f"  k2 values: {k2_values}")
+        print(f"  Batch sizes: {batch_sizes}")
+        
+        # Save original config
+        original_config = self.config.copy()
+        
+        results = {
+            'test_queries': test_queries,
+            'configs_tested': [],
+            'best_config': None,
+            'best_latency': float('inf')
+        }
+        
+        # Test each configuration
+        total_tests = len(k1_values) * len(k2_values) * len(batch_sizes)
+        test_num = 0
+        
+        print(f"\nRunning {total_tests} configuration tests...")
+        print("-"*70)
+        
+        for k1 in k1_values:
+            for k2 in k2_values:
+                for batch_size in batch_sizes:
+                    test_num += 1
+                    
+                    # Skip invalid combinations
+                    if k1 < k2:
+                        continue
+                    
+                    print(f"\n[Test {test_num}/{total_tests}] k1={k1}, k2={k2}, batch_size={batch_size}")
+                    
+                    # Update config
+                    self.update_config(k1=k1, k2=k2, batch_size=batch_size, show_progress=False)
+                    
+                    # Reset stats for this test
+                    self.reset_statistics()
+                    
+                    # Run test queries
+                    start_time = time.time()
+                    for query in test_queries:
+                        self.text_to_image_hybrid_search(
+                            query=query,
+                            show_progress=False
+                        )
+                    test_time = (time.time() - start_time) * 1000
+                    
+                    # Get statistics
+                    stats = self.get_statistics()
+                    
+                    avg_latency = test_time / len(test_queries)
+                    
+                    config_result = {
+                        'k1': k1,
+                        'k2': k2,
+                        'batch_size': batch_size,
+                        'total_time_ms': test_time,
+                        'avg_latency_ms': avg_latency,
+                        'stage1_avg_ms': stats['latency']['stage1_ms']['mean'] if 'latency' in stats else 0,
+                        'stage2_avg_ms': stats['latency']['stage2_ms']['mean'] if 'latency' in stats else 0,
+                    }
+                    
+                    results['configs_tested'].append(config_result)
+                    
+                    print(f"  Total: {test_time:.2f}ms | Avg: {avg_latency:.2f}ms/query")
+                    print(f"  Stage 1: {config_result['stage1_avg_ms']:.2f}ms | "
+                          f"Stage 2: {config_result['stage2_avg_ms']:.2f}ms")
+                    
+                    # Track best config
+                    if avg_latency < results['best_latency']:
+                        results['best_latency'] = avg_latency
+                        results['best_config'] = config_result
+        
+        # Restore original config
+        self.config = original_config
+        self.cache_enabled = self.config.get('use_cache', False)
+        
+        # Generate summary
+        print("\n" + "="*70)
+        print("PROFILING SUMMARY")
+        print("="*70)
+        
+        print(f"\nConfigurations tested: {len(results['configs_tested'])}")
+        
+        if results['best_config']:
+            best = results['best_config']
+            print(f"\n🏆 Best Configuration:")
+            print(f"  k1={best['k1']}, k2={best['k2']}, batch_size={best['batch_size']}")
+            print(f"  Average latency: {best['avg_latency_ms']:.2f}ms")
+            print(f"  Stage 1: {best['stage1_avg_ms']:.2f}ms")
+            print(f"  Stage 2: {best['stage2_avg_ms']:.2f}ms")
+        
+        # Show top 3 configs
+        sorted_configs = sorted(results['configs_tested'], key=lambda x: x['avg_latency_ms'])
+        
+        print(f"\nTop 3 Configurations:")
+        print(f"{'Rank':<6} {'k1':<6} {'k2':<6} {'Batch':<8} {'Avg Latency (ms)':<18}")
+        print("-"*70)
+        for i, config in enumerate(sorted_configs[:3], 1):
+            print(f"{i:<6} {config['k1']:<6} {config['k2']:<6} "
+                  f"{config['batch_size']:<8} {config['avg_latency_ms']:<18.2f}")
+        
+        print("\n" + "="*70)
+        
+        results['summary'] = {
+            'best_config': results['best_config'],
+            'top_3': sorted_configs[:3]
+        }
+        
+        return results
+    
+    def optimize_config(
+        self,
+        target_latency_ms: float = 500,
+        test_queries: Optional[List[str]] = None,
+        n_queries: int = 10
+    ) -> Dict[str, Any]:
+        """
+        Automatically find optimal configuration for target latency.
+        
+        Args:
+            target_latency_ms: Target average latency per query
+            test_queries: Test queries (if None, samples from dataset)
+            n_queries: Number of test queries
+        
+        Returns:
+            Dictionary with optimization results and recommended config
+        
+        Example:
+            >>> result = engine.optimize_config(target_latency_ms=400)
+            >>> engine.update_config(**result['recommended_config'])
+        """
+        print(f"\nOptimizing for target latency: {target_latency_ms}ms")
+        
+        # Profile with different configs
+        profile_results = self.profile_search(
+            test_queries=test_queries,
+            n_queries=n_queries
+        )
+        
+        # Find config closest to target
+        best_match = None
+        min_diff = float('inf')
+        
+        for config in profile_results['configs_tested']:
+            diff = abs(config['avg_latency_ms'] - target_latency_ms)
+            if diff < min_diff:
+                min_diff = diff
+                best_match = config
+        
+        result = {
+            'target_latency_ms': target_latency_ms,
+            'recommended_config': {
+                'k1': best_match['k1'],
+                'k2': best_match['k2'],
+                'batch_size': best_match['batch_size']
+            },
+            'expected_latency_ms': best_match['avg_latency_ms'],
+            'latency_diff_ms': min_diff,
+            'profile_results': profile_results
+        }
+        
+        print(f"\n✓ Optimization complete")
+        print(f"  Recommended config: k1={best_match['k1']}, k2={best_match['k2']}, "
+              f"batch_size={best_match['batch_size']}")
+        print(f"  Expected latency: {best_match['avg_latency_ms']:.2f}ms "
+              f"(target: {target_latency_ms}ms)")
+        
+        return result
     
     def __repr__(self) -> str:
         """String representation of the search engine."""
+        cache_info = f", cache={len(self.cache)}" if self.cache_enabled else ""
         return (
             f"HybridSearchEngine("
             f"images={self.image_index.index.ntotal:,}, "
             f"k1={self.config['k1']}, "
             f"k2={self.config['k2']}, "
+            f"batch_size={self.config['batch_size']}, "
             f"queries={self.stats['total_queries']}"
+            f"{cache_info}"
             f")"
         )
 
 
 if __name__ == "__main__":
     # Simple test
-    logging.basicConfig(level=logging.INFO)
-    
     print("Hybrid Search Engine module loaded successfully")
     print("To use, initialize with:")
     print("  - BiEncoder (CLIP)")

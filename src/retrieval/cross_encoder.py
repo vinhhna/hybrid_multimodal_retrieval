@@ -18,7 +18,6 @@ from typing import Union, List, Tuple, Optional, Dict, Any
 from PIL import Image
 from tqdm import tqdm
 import yaml
-import logging
 
 try:
     from transformers import Blip2Processor, Blip2ForConditionalGeneration
@@ -68,8 +67,7 @@ class CrossEncoder:
             device: Device to use ('cuda', 'cpu', or torch.device)
             use_fp16: Use mixed precision (FP16) for efficiency
         """
-        self.logger = logging.getLogger(__name__)
-        self.logger.info("Initializing BLIP-2 Cross-Encoder (Hugging Face)...")
+        print("Initializing BLIP-2 Cross-Encoder (Hugging Face)...")
         
         # Load configuration
         self.config = self._load_config(config_path)
@@ -78,10 +76,10 @@ class CrossEncoder:
         if device is None:
             device = self.config['model'].get('device', 'cuda' if torch.cuda.is_available() else 'cpu')
         self.device = torch.device(device)
-        self.logger.info(f"Using device: {self.device}")
+        print(f"Using device: {self.device}")
         
         # Load BLIP-2 model from Hugging Face
-        self.logger.info(f"Loading BLIP-2 model from Hugging Face: {model_name}")
+        print(f"Loading BLIP-2 model from Hugging Face: {model_name}")
         self.processor = Blip2Processor.from_pretrained(model_name)
         self.model = Blip2ForConditionalGeneration.from_pretrained(
             model_name,
@@ -92,7 +90,7 @@ class CrossEncoder:
         # Model configuration
         self.use_fp16 = use_fp16 and self.device.type == 'cuda'
         if self.use_fp16:
-            self.logger.info("Using FP16 mixed precision")
+            print("Using FP16 mixed precision")
         
         self.model.eval()
         
@@ -105,7 +103,7 @@ class CrossEncoder:
         self.fallback_batch_size = self.config['memory'].get('fallback_batch_size', 4)
         self.clear_cache = self.config['memory'].get('clear_cache_after_batch', True)
         
-        self.logger.info("✓ BLIP-2 Cross-Encoder initialized successfully")
+        print("✓ BLIP-2 Cross-Encoder initialized successfully")
     
     def _load_config(self, config_path: Optional[Union[str, Path]] = None) -> Dict[str, Any]:
         """Load configuration from YAML file."""
@@ -118,7 +116,7 @@ class CrossEncoder:
         if config_path.exists():
             with open(config_path, 'r') as f:
                 config = yaml.safe_load(f)
-            self.logger.info(f"Loaded config from {config_path}")
+            print(f"Loaded config from {config_path}")
         else:
             # Default configuration
             config = {
@@ -131,7 +129,7 @@ class CrossEncoder:
                 },
                 'optimization': {'use_fp16': True}
             }
-            self.logger.warning(f"Config not found at {config_path}, using defaults")
+            print(f"Warning: Config not found at {config_path}, using defaults")
         
         return config
     
@@ -220,7 +218,7 @@ class CrossEncoder:
                 
             except RuntimeError as e:
                 if "out of memory" in str(e):
-                    self.logger.warning(f"OOM at batch size {batch_size}, using fallback")
+                    print(f"Warning: OOM at batch size {batch_size}, using fallback")
                     # Handle OOM
                     batch_scores = self._handle_oom(
                         batch_queries, batch_candidates,
@@ -374,7 +372,7 @@ class CrossEncoder:
                 return score
                 
         except Exception as e:
-            self.logger.warning(f"Scoring failed for text '{text[:50]}...': {e}")
+            print(f"Warning: Scoring failed for text '{text[:50]}...': {e}")
             # Fallback: use neutral score
             return 0.5
     
@@ -405,7 +403,7 @@ class CrossEncoder:
         
         # Use smaller batch size
         new_batch_size = max(self.fallback_batch_size, current_batch_size // 2)
-        self.logger.info(f"Retrying with batch size {new_batch_size}")
+        print(f"Retrying with batch size {new_batch_size}")
         
         all_scores = []
         for i in range(0, len(batch_queries), new_batch_size):
@@ -440,8 +438,6 @@ class CrossEncoder:
 
 if __name__ == "__main__":
     # Simple test
-    logging.basicConfig(level=logging.INFO)
-    
     print("Testing BLIP-2 Cross-Encoder...")
     encoder = CrossEncoder()
     print(encoder.get_model_info())
