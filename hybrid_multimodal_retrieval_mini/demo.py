@@ -14,7 +14,7 @@ def main():
     
     # Load dataset
     print("Loading dataset...")
-    dataset = Flickr30KDataset('data/images', 'data/results.csv')
+    dataset = Flickr30KDataset('/kaggle/input/flickr30k/data/images', '/kaggle/input/flickr30k/data/results.csv')
     
     # Load encoder
     print("\nLoading CLIP encoder...")
@@ -23,10 +23,10 @@ def main():
     # Load indices
     print("\nLoading FAISS indices...")
     image_index = FAISSIndex()
-    image_index.load('data/image_index.faiss')
+    image_index.load('/kaggle/input/flickr30k/data/indices/image_index.faiss')
     
     text_index = FAISSIndex()
-    text_index.load('data/text_index.faiss')
+    text_index.load('/kaggle/input/flickr30k/data/indices/text_index.faiss')
     
     # Create search engine
     print("\nInitializing search engine...")
