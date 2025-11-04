@@ -69,6 +69,9 @@ class CrossEncoder:
         """
         print("Initializing BLIP-2 Cross-Encoder (Hugging Face)...")
         
+        # Store model name
+        self.model_name = model_name
+        
         # Load configuration
         self.config = self._load_config(config_path)
         
