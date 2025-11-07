@@ -605,21 +605,21 @@ class HybridSearchEngine:
         
         stage2_start = time.time()
         
-        # Prepare batch data: (query_idx, query_text, image_id, clip_score)
+        # Prepare batch data: (query_idx, query_text, image_name, clip_score)
         batch_items = []
         for query_idx, (query, candidates) in enumerate(zip(queries, all_candidates)):
-            for image_id, clip_score in candidates:
+            for image_name, clip_score in candidates:
                 batch_items.append({
                     'query_idx': query_idx,
                     'query': query,
-                    'image_id': image_id,
+                    'image_name': image_name,
                     'clip_score': clip_score
                 })
         
         # Get image paths
         for item in batch_items:
-            image_info = self.dataset.get_image_by_id(item['image_id'])
-            item['image_path'] = image_info['path'] if image_info else None
+            image_path = self.dataset.images_dir / item['image_name']
+            item['image_path'] = str(image_path) if image_path.exists() else None
         
         # Filter out missing images
         valid_items = [item for item in batch_items if item['image_path'] is not None]
@@ -659,7 +659,7 @@ class HybridSearchEngine:
         for item in valid_items:
             query_idx = item['query_idx']
             final_results[query_idx].append((
-                item['image_id'],
+                item['image_name'],
                 item['cross_score']
             ))
         
