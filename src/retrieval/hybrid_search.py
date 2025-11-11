@@ -39,6 +39,27 @@ except ImportError:
     from flickr30k.dataset import Flickr30KDataset
 
 
+def _normalize(arr):
+    """
+    Robust min-max normalization with epsilon handling.
+    
+    Returns zeros if array is constant (avoids division by zero).
+    
+    Args:
+        arr: Array-like to normalize
+    
+    Returns:
+        Normalized array in [0, 1] or zeros if constant
+    """
+    arr = np.asarray(arr, dtype=np.float32)
+    if arr.size == 0:
+        return arr
+    mn, mx = float(np.min(arr)), float(np.max(arr))
+    if mx - mn < 1e-8:
+        return np.zeros_like(arr, dtype=np.float32)
+    return (arr - mn) / (mx - mn)
+
+
 def dense_rank_desc(x: np.ndarray) -> np.ndarray:
     """
     Compute dense ranking where highest value gets rank 1.
@@ -375,12 +396,12 @@ class HybridSearchEngine:
         Implements fusion between Stage-1 and Stage-2 scores for robustness:
         - 'replace': Use only Stage-2 scores (requires higher_is_better correctness)
         - 'weighted': Weighted combination of normalized Stage-1 and Stage-2 scores
-        - 'rank_fusion': Reciprocal rank fusion
+        - 'rank_fusion': Reciprocal rank fusion (orientation-safe)
         
         Includes guardrails:
         - Filters out missing files before scoring
         - Health check: detects inverted rankings via correlation
-        - Fallback: uses weighted fusion if Stage-2 seems unreliable
+        - Automatic correction: flips Stage-2 or switches to rank fusion if inverted
         
         Target latency: <2000ms for 50 candidates with batch_size=8
         
@@ -400,7 +421,7 @@ class HybridSearchEngine:
         
         # Extract image IDs and Stage-1 scores
         image_ids = [img_id for img_id, _ in candidates]
-        clip_scores = np.array([score for _, score in candidates])
+        clip_scores = np.array([score for _, score in candidates], dtype=np.float32)
         
         # Guardrail 1: Filter out missing files
         image_paths = [self.dataset.images_dir / img_id for img_id in image_ids]
@@ -429,84 +450,90 @@ class HybridSearchEngine:
                 batch_size=batch_size,
                 show_progress=show_progress
             )
-            blip2_scores = np.array(blip2_scores)
+            blip2_scores = np.array(blip2_scores, dtype=np.float32)
         except Exception as e:
             print(f"Warning: Stage-2 scoring failed: {e}")
             print("Falling back to Stage-1 results")
             return candidates[:k2]
         
         # Get scoring direction from cross-encoder
-        higher_is_better = getattr(self.cross_encoder, "higher_is_better", True)
+        stage2_higher = getattr(self.cross_encoder, "higher_is_better", True)
         
-        # Guardrail 2: Health check - detect inverted rankings
-        # Compute correlation between Stage-1 and Stage-2 scores
-        if len(clip_scores) > 3:  # Need at least 4 points for meaningful correlation
-            correlation = np.corrcoef(clip_scores, blip2_scores)[0, 1]
-            
-            # If correlation is strongly negative, Stage-2 might be inverted
-            if correlation < -0.2:
-                print(f"Warning: Stage-2 scores seem inverted (correlation={correlation:.3f})")
-                print("Applying weighted fusion as fallback")
-                fusion_method = 'weighted'
-            else:
-                fusion_method = self.config.get('fusion_method', 'weighted')
+        # Orient Stage-2 scores for fusion (higher = better)
+        blip2_for_fusion = blip2_scores if stage2_higher else (-1.0 * blip2_scores)
+        
+        # Orient Stage-1 scores: try both signs and choose the one that best aligns with Stage-2
+        clip_raw = np.asarray(clip_scores, dtype=np.float32)
+        if len(clip_raw) > 3:
+            c1 = np.corrcoef(clip_raw, blip2_for_fusion)[0, 1]
+            c2 = np.corrcoef(-clip_raw, blip2_for_fusion)[0, 1]
+            clip_for_fusion = clip_raw if abs(c1) >= abs(c2) else (-clip_raw)
+            correlation = np.corrcoef(clip_for_fusion, blip2_for_fusion)[0, 1]
         else:
-            fusion_method = self.config.get('fusion_method', 'weighted')
+            clip_for_fusion = clip_raw
+            correlation = 0.0
+        
+        # Guardrail 2: Correct inversion when BLIP-2 disagrees strongly with Stage-1
+        fusion_method = self.config.get("fusion_method", "weighted")
+        stage1_weight = float(self.config.get("stage1_weight", 0.3))
+        stage2_weight = float(self.config.get("stage2_weight", 0.7))
+        
+        if correlation < -0.2:
+            print(f"Warning: Stage-2 scores seem inverted (correlation={correlation:.3f})")
+            # Flip Stage-2: if it's a probability in [0,1], flipping is 1 - p
+            blip2_for_fusion = 1.0 - blip2_for_fusion
+            # Recompute correlation (optional)
+            if len(clip_raw) > 3:
+                correlation = np.corrcoef(clip_for_fusion, blip2_for_fusion)[0, 1]
+            # Be conservative: either reduce Stage-2 weight or fall back to rank fusion
+            if fusion_method == "weighted":
+                stage1_weight, stage2_weight = 0.6, 0.4
+                print(f"Corrected: flipped Stage-2, reduced weight to {stage2_weight:.1f}")
+            else:
+                fusion_method = "rank_fusion"
+                print("Corrected: switching to rank_fusion (orientation-safe)")
         
         # Apply fusion method
         if fusion_method == 'replace':
-            # Use only Stage-2 scores
-            final_scores = blip2_scores
+            # Use only Stage-2 scores (after orientation correction)
+            final_scores = blip2_for_fusion
             
         elif fusion_method == 'weighted':
-            # Weighted combination with min-max normalization
-            stage1_weight = self.config.get('stage1_weight', 0.3)
-            stage2_weight = self.config.get('stage2_weight', 0.7)
-            
-            # Min-max normalize scores to [0, 1]
-            def normalize(scores):
-                min_score = scores.min()
-                max_score = scores.max()
-                if max_score > min_score:
-                    return (scores - min_score) / (max_score - min_score)
-                return np.ones_like(scores) * 0.5
-            
-            clip_norm = normalize(clip_scores)
-            blip2_norm = normalize(blip2_scores)
+            # Weighted combination with robust normalization
+            clip_norm = _normalize(clip_for_fusion)
+            blip2_norm = _normalize(blip2_for_fusion)
             
             # Weighted combination
             final_scores = stage1_weight * clip_norm + stage2_weight * blip2_norm
+            final_scores = np.asarray(final_scores, dtype=np.float32)
             
         elif fusion_method == 'rank_fusion':
-            # Reciprocal rank fusion with 1-based ranks
-            # Highest score gets rank 1 for both signals
-            clip_ranks = dense_rank_desc(clip_scores)
-            
-            # For BLIP-2, flip sign if higher_is_better is False
-            blip2_ranks = dense_rank_desc(blip2_scores if higher_is_better else -blip2_scores)
-            
-            # RRF: 1 / (k + rank), with k=60 (standard)
+            # Orientation-safe reciprocal rank fusion
+            # Build ranks where lower rank index means better candidate
+            clip_rank = np.argsort(np.argsort(-clip_for_fusion))
+            blip_rank = np.argsort(np.argsort(-blip2_for_fusion))
+            # RRF with k=60 (typical); avoid divide-by-zero with +1
             k_rrf = 60.0
-            final_scores = 1.0 / (k_rrf + clip_ranks) + 1.0 / (k_rrf + blip2_ranks)
+            final_scores = 1.0 / (k_rrf + clip_rank + 1) + 1.0 / (k_rrf + blip_rank + 1)
+            final_scores = np.asarray(final_scores, dtype=np.float32)
             
         else:
             print(f"Warning: Unknown fusion_method '{fusion_method}', using 'weighted'")
-            stage1_weight = 0.3
-            stage2_weight = 0.7
-            clip_norm = (clip_scores - clip_scores.min()) / (clip_scores.max() - clip_scores.min() + 1e-8)
-            blip2_norm = (blip2_scores - blip2_scores.min()) / (blip2_scores.max() - blip2_scores.min() + 1e-8)
+            clip_norm = _normalize(clip_for_fusion)
+            blip2_norm = _normalize(blip2_for_fusion)
             final_scores = stage1_weight * clip_norm + stage2_weight * blip2_norm
+            final_scores = np.asarray(final_scores, dtype=np.float32)
+        
+        # Apply ordering: higher final_scores = better
+        order = np.argsort(-final_scores)
         
         # Create list of (image_id, final_score) tuples
         reranked_results = [
-            (image_id, float(score))
-            for image_id, score in zip(image_ids, final_scores)
+            (image_ids[idx], float(final_scores[idx]))
+            for idx in order[:k2]
         ]
         
-        # Sort by final score (descending) and take top-k2
-        reranked_results.sort(key=lambda x: x[1], reverse=True)
-        
-        return reranked_results[:k2]
+        return reranked_results
     
     def image_to_image_hybrid_search(
         self,
@@ -791,13 +818,7 @@ class HybridSearchEngine:
         fusion_method = self.config.get('fusion_method', 'weighted')
         stage1_weight = float(self.config.get('stage1_weight', 0.3))
         stage2_weight = float(self.config.get('stage2_weight', 0.7))
-        higher_is_better = getattr(self.cross_encoder, "higher_is_better", True)
-        
-        def minmax_normalize(arr):
-            """Min-max normalize array to [0, 1]."""
-            arr = np.asarray(arr, dtype=float)
-            mn, mx = arr.min(), arr.max()
-            return np.full_like(arr, 0.5) if mx == mn else (arr - mn) / (mx - mn)
+        stage2_higher = getattr(self.cross_encoder, "higher_is_better", True)
         
         final_results = []
         
@@ -808,28 +829,54 @@ class HybridSearchEngine:
                 continue
             
             # Extract scores
-            clip_scores = np.array([it['clip_score'] for it in items], dtype=float)
-            blip_scores = np.array([it['cross_score'] for it in items], dtype=float)
+            clip_scores = np.array([it['clip_score'] for it in items], dtype=np.float32)
+            blip_scores = np.array([it['cross_score'] for it in items], dtype=np.float32)
             
-            # Flip BLIP scores if lower is better
-            if not higher_is_better:
-                blip_scores = -blip_scores
+            # Orient Stage-2 scores for fusion (higher = better)
+            blip2_for_fusion = blip_scores if stage2_higher else (-1.0 * blip_scores)
+            
+            # Orient Stage-1 scores: try both signs and choose the one that best aligns with Stage-2
+            clip_raw = clip_scores
+            if len(clip_raw) > 3:
+                c1 = np.corrcoef(clip_raw, blip2_for_fusion)[0, 1]
+                c2 = np.corrcoef(-clip_raw, blip2_for_fusion)[0, 1]
+                clip_for_fusion = clip_raw if abs(c1) >= abs(c2) else (-clip_raw)
+                correlation = np.corrcoef(clip_for_fusion, blip2_for_fusion)[0, 1]
+            else:
+                clip_for_fusion = clip_raw
+                correlation = 0.0
+            
+            # Correct inversion when BLIP-2 disagrees strongly with Stage-1
+            current_fusion = fusion_method
+            current_s1_weight = stage1_weight
+            current_s2_weight = stage2_weight
+            
+            if correlation < -0.2:
+                # Flip Stage-2: if it's a probability in [0,1], flipping is 1 - p
+                blip2_for_fusion = 1.0 - blip2_for_fusion
+                # Be conservative: reduce Stage-2 weight or switch to rank fusion
+                if current_fusion == "weighted":
+                    current_s1_weight, current_s2_weight = 0.6, 0.4
+                else:
+                    current_fusion = "rank_fusion"
             
             # Compute fused scores based on method
-            if fusion_method == 'weighted':
-                clip_norm = minmax_normalize(clip_scores)
-                blip_norm = minmax_normalize(blip_scores)
-                fused_scores = stage1_weight * clip_norm + stage2_weight * blip_norm
+            if current_fusion == 'weighted':
+                clip_norm = _normalize(clip_for_fusion)
+                blip_norm = _normalize(blip2_for_fusion)
+                fused_scores = current_s1_weight * clip_norm + current_s2_weight * blip_norm
+                fused_scores = np.asarray(fused_scores, dtype=np.float32)
                 
-            elif fusion_method == 'rank_fusion':
-                clip_ranks = dense_rank_desc(clip_scores)
-                blip_ranks = dense_rank_desc(blip_scores)
+            elif current_fusion == 'rank_fusion':
+                clip_rank = np.argsort(np.argsort(-clip_for_fusion))
+                blip_rank = np.argsort(np.argsort(-blip2_for_fusion))
                 k_rrf = 60.0
-                fused_scores = 1.0 / (k_rrf + clip_ranks) + 1.0 / (k_rrf + blip_ranks)
+                fused_scores = 1.0 / (k_rrf + clip_rank + 1) + 1.0 / (k_rrf + blip_rank + 1)
+                fused_scores = np.asarray(fused_scores, dtype=np.float32)
                 
             else:  # 'replace'
-                # Trust BLIP scores (already flipped if needed)
-                fused_scores = blip_scores
+                # Use Stage-2 scores (after orientation correction)
+                fused_scores = blip2_for_fusion
             
             # Attach fused scores and sort
             for item, fused_score in zip(items, fused_scores):

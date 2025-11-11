@@ -24,6 +24,10 @@ class BiEncoder:
     - Encoding text into dense vectors
     - Saving and loading embeddings
     
+    CLIP produces cosine similarity scores where higher = better match.
+    When normalized embeddings are used with inner product search,
+    higher scores indicate greater relevance.
+    
     Attributes:
         model: The CLIP model
         preprocess: Image preprocessing function
