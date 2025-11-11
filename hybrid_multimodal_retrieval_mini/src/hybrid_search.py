@@ -38,10 +38,17 @@ class HybridSearchEngine:
         # Prepare data for re-ranking
         image_names = [name for name, _ in candidates]
         image_paths = [str(self.dataset.images_dir / name) for name in image_names]
-        texts = [query_text] * len(candidates)
+        queries_list = [query_text] * len(candidates)
         
         # Score with BLIP-2
-        blip2_scores = self.reranker.score_pairs(texts, image_paths, batch_size=4)
+        blip2_scores = self.reranker.score_pairs(
+            queries=queries_list,
+            candidates=image_paths,
+            query_type='text',
+            candidate_type='image',
+            batch_size=4,
+            show_progress=False
+        )
         
         # Create re-ranked results
         reranked = [(name, score) for name, score in zip(image_names, blip2_scores)]

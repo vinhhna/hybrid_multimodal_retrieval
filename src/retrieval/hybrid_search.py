@@ -638,14 +638,17 @@ class HybridSearchEngine:
             batch = valid_items[i:i + batch_size]
             
             # Prepare batch for cross-encoder
-            texts = [item['query'] for item in batch]
-            images = [item['image_path'] for item in batch]
+            queries_batch = [item['query'] for item in batch]
+            candidates_batch = [item['image_path'] for item in batch]
             
             # Score batch
             scores = self.cross_encoder.score_pairs(
-                texts=texts,
-                images=images,
-                batch_size=len(batch)
+                queries=queries_batch,
+                candidates=candidates_batch,
+                query_type='text',
+                candidate_type='image',
+                batch_size=len(batch),
+                show_progress=False
             )
             cross_scores.extend(scores)
         
