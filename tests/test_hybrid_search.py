@@ -135,7 +135,7 @@ def test_stage1_clip(engine: HybridSearchEngine):
         
         # Stage 1 only (use internal method)
         start = time.time()
-        candidates = engine._stage1_retrieve(query, k=100)
+        candidates = engine._stage1_retrieve(query, k1=100)
         latency = (time.time() - start) * 1000
         latencies.append(latency)
         
@@ -183,7 +183,7 @@ def test_stage2_blip2(engine: HybridSearchEngine):
     # Stage 1: Get candidates
     print("\n[Stage 1] Retrieving candidates...")
     start = time.time()
-    candidates = engine._stage1_retrieve(query, k=k1)
+    candidates = engine._stage1_retrieve(query, k1=k1)
     stage1_time = (time.time() - start) * 1000
     print(f"  ✓ Retrieved {len(candidates)} candidates in {stage1_time:.2f}ms")
     
@@ -193,7 +193,7 @@ def test_stage2_blip2(engine: HybridSearchEngine):
     final_results = engine._stage2_rerank(
         query=query,
         candidates=candidates,
-        k=k2,
+        k2=k2,
         batch_size=4
     )
     stage2_time = (time.time() - start) * 1000
@@ -544,7 +544,7 @@ def test_comparison(engine: HybridSearchEngine):
         # CLIP-only (Stage 1)
         print(f"\n  [CLIP-only] k=10")
         start = time.time()
-        clip_results = engine._stage1_retrieve(query, k=10)
+        clip_results = engine._stage1_retrieve(query, k1=10)
         clip_time = (time.time() - start) * 1000
         print(f"    Latency: {clip_time:.2f}ms")
         print(f"    Top 3:")

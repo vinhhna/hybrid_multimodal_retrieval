@@ -177,7 +177,7 @@ def evaluate_clip_only(
         
         # Run CLIP search
         start = time.time()
-        search_results = engine._stage1_retrieve(query, k=k)
+        search_results = engine._stage1_retrieve(query, k1=k)
         latency = (time.time() - start) * 1000
         latencies.append(latency)
         
