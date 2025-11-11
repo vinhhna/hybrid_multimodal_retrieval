@@ -37,7 +37,7 @@ sys.path.insert(0, str(project_root))
 # Auto-detect environment
 if Path('/kaggle/input').exists():
     # Kaggle environment
-    DATA_DIR = Path('/kaggle/input/flickr30k')
+    DATA_DIR = Path('/kaggle/input/flickr30k/data')
     print("Running on Kaggle")
 else:
     # Local environment
