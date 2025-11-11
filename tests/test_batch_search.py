@@ -383,9 +383,10 @@ def test_result_quality(engine: HybridSearchEngine):
         print("-"*70)
         
         for rank, (image_id, score) in enumerate(results[:5], 1):
-            image_info = dataset.get_image_by_id(image_id)
-            if image_info and image_info['captions']:
-                caption = image_info['captions'][0][:60]
+            # Get captions for this image
+            captions = dataset.get_captions(image_id)
+            if captions:
+                caption = captions[0][:60]
             else:
                 caption = "N/A"
             

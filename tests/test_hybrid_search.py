@@ -366,8 +366,8 @@ def test_image_to_image(engine: HybridSearchEngine):
     
     print(f"\nTop 5 similar images:")
     for rank, (image_id, score) in enumerate(results[:5], 1):
-        similar_item = dataset.get_image_by_id(image_id)
-        caption = similar_item['captions'][0][:60] if similar_item and similar_item['captions'] else "N/A"
+        captions = dataset.get_captions(image_id)
+        caption = captions[0][:60] if captions else "N/A"
         print(f"  {rank}. {image_id}: {score:.4f}")
         print(f"     {caption}...")
     
