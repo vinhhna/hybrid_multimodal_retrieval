@@ -63,11 +63,11 @@ def load_components():
     tracemalloc.start()
     mem_before = tracemalloc.get_traced_memory()[0] / 1024 / 1024  # MB
     
-    # Load dataset
+    # 1. Load dataset
     print("\n[1/4] Loading Flickr30K dataset...")
     dataset = Flickr30KDataset(
         images_dir=str(DATA_DIR / 'images'),
-        annotations_file=str(DATA_DIR / 'results.csv')
+        captions_file=str(DATA_DIR / 'results.csv')
     )
     print(f"  ✓ Loaded {len(dataset)} images")
     
