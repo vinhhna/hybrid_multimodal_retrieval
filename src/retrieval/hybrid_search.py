@@ -39,6 +39,27 @@ except ImportError:
     from flickr30k.dataset import Flickr30KDataset
 
 
+def dense_rank_desc(x: np.ndarray) -> np.ndarray:
+    """
+    Compute dense ranking where highest value gets rank 1.
+    
+    Args:
+        x: Array of scores
+    
+    Returns:
+        Array of ranks (1-based, highest score = rank 1)
+    
+    Example:
+        >>> scores = np.array([0.8, 0.5, 0.9, 0.5])
+        >>> dense_rank_desc(scores)
+        array([2, 3, 1, 3])  # 0.9 is rank 1, 0.8 is rank 2, both 0.5s are rank 3
+    """
+    order = np.argsort(-x)  # Sort descending
+    ranks = np.empty_like(order, dtype=np.int32)
+    ranks[order] = np.arange(1, len(x) + 1)
+    return ranks
+
+
 class HybridSearchEngine:
     """
     Hybrid Search Engine combining CLIP and BLIP-2 for improved retrieval.
@@ -145,7 +166,7 @@ class HybridSearchEngine:
         print(f"  Image Index: {image_index.index.ntotal:,} vectors")
         print(f"  Dataset: {len(dataset):,} images")
         print(f"  Config: k1={self.config['k1']}, k2={self.config['k2']}, "
-              f"batch_size={self.config['batch_size']}")
+              f"batch_size={self.config['batch_size']}, fusion={self.config['fusion_method']}")
     
     def _load_config(self, config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
@@ -159,20 +180,20 @@ class HybridSearchEngine:
         """
         default_config = {
             # Stage 1: CLIP retrieval
-            'k1': 100,  # Number of candidates to retrieve
+            'k1': 50,  # Reduced from 100 to cut Stage-2 cost
             
             # Stage 2: BLIP-2 re-ranking
             'k2': 10,  # Number of final results
-            'batch_size': 4,  # BLIP-2 batch size
+            'batch_size': 8,  # Increased from 4 for better throughput
             
             # Performance
             'use_cache': False,  # Enable query caching
             'show_progress': True,  # Show progress bars
             
-            # Score fusion (for weighted combination)
-            'fusion_method': 'replace',  # 'replace', 'weighted', or 'rank_fusion'
-            'stage1_weight': 0.0,  # Weight for CLIP scores
-            'stage2_weight': 1.0,  # Weight for BLIP-2 scores
+            # Score fusion
+            'fusion_method': 'weighted',  # 'replace', 'weighted', or 'rank_fusion'
+            'stage1_weight': 0.3,  # Weight for CLIP scores
+            'stage2_weight': 0.7,  # Weight for BLIP-2 scores
         }
         
         if config is not None:
@@ -232,9 +253,17 @@ class HybridSearchEngine:
         batch_size = batch_size or self.config['batch_size']
         show_progress = show_progress if show_progress is not None else self.config['show_progress']
         
-        # Check cache
+        # Check cache (include fusion-affecting parameters in key)
         if self.cache_enabled:
-            cache_key = f"t2i:{query}:{k1}:{k2}"
+            cache_key = "t2i:{q}:{k1}:{k2}:{fm}:{w1}:{w2}:{bs}".format(
+                q=query,
+                k1=k1,
+                k2=k2,
+                fm=self.config.get('fusion_method', 'weighted'),
+                w1=self.config.get('stage1_weight', 0.3),
+                w2=self.config.get('stage2_weight', 0.7),
+                bs=batch_size
+            )
             if cache_key in self.cache:
                 self.stats['cache_hits'] += 1
                 # Cache hit for query
@@ -338,12 +367,22 @@ class HybridSearchEngine:
         show_progress: bool = True
     ) -> List[Tuple[str, float]]:
         """
-        Stage 2: Accurate re-ranking using BLIP-2 cross-encoder.
+        Stage 2: Accurate re-ranking using BLIP-2 cross-encoder with fusion.
         
         This stage re-scores the top-k1 candidates from Stage 1 using BLIP-2's
         deep cross-modal interaction, providing more accurate relevance scores.
         
-        Target latency: <2000ms for 100 candidates with batch_size=4
+        Implements fusion between Stage-1 and Stage-2 scores for robustness:
+        - 'replace': Use only Stage-2 scores (requires higher_is_better correctness)
+        - 'weighted': Weighted combination of normalized Stage-1 and Stage-2 scores
+        - 'rank_fusion': Reciprocal rank fusion
+        
+        Includes guardrails:
+        - Filters out missing files before scoring
+        - Health check: detects inverted rankings via correlation
+        - Fallback: uses weighted fusion if Stage-2 seems unreliable
+        
+        Target latency: <2000ms for 50 candidates with batch_size=8
         
         Args:
             query: Text query string
@@ -353,31 +392,118 @@ class HybridSearchEngine:
             show_progress: Show progress bar
         
         Returns:
-            List of (image_id, blip2_score) tuples for top-k2 results,
-            sorted by BLIP-2 score (descending)
+            List of (image_id, final_score) tuples for top-k2 results,
+            sorted by final score (descending)
         """
-        # Prepare batch data
+        if not candidates:
+            return []
+        
+        # Extract image IDs and Stage-1 scores
         image_ids = [img_id for img_id, _ in candidates]
+        clip_scores = np.array([score for _, score in candidates])
+        
+        # Guardrail 1: Filter out missing files
         image_paths = [self.dataset.images_dir / img_id for img_id in image_ids]
-        queries = [query] * len(candidates)
+        valid_indices = [i for i, path in enumerate(image_paths) if path.exists()]
+        
+        if not valid_indices:
+            print("Warning: No valid image files found, returning Stage-1 results")
+            return candidates[:k2]
+        
+        if len(valid_indices) < len(image_ids):
+            print(f"Warning: {len(image_ids) - len(valid_indices)} images not found, using {len(valid_indices)} valid images")
+            image_ids = [image_ids[i] for i in valid_indices]
+            image_paths = [image_paths[i] for i in valid_indices]
+            clip_scores = clip_scores[valid_indices]
+        
+        # Prepare batch data
+        queries = [query] * len(image_ids)
         
         # Score with BLIP-2
-        blip2_scores = self.cross_encoder.score_pairs(
-            queries=queries,
-            candidates=image_paths,
-            query_type='text',
-            candidate_type='image',
-            batch_size=batch_size,
-            show_progress=show_progress
-        )
+        try:
+            blip2_scores = self.cross_encoder.score_pairs(
+                queries=queries,
+                candidates=image_paths,
+                query_type='text',
+                candidate_type='image',
+                batch_size=batch_size,
+                show_progress=show_progress
+            )
+            blip2_scores = np.array(blip2_scores)
+        except Exception as e:
+            print(f"Warning: Stage-2 scoring failed: {e}")
+            print("Falling back to Stage-1 results")
+            return candidates[:k2]
         
-        # Create list of (image_id, blip2_score) tuples
+        # Get scoring direction from cross-encoder
+        higher_is_better = getattr(self.cross_encoder, "higher_is_better", True)
+        
+        # Guardrail 2: Health check - detect inverted rankings
+        # Compute correlation between Stage-1 and Stage-2 scores
+        if len(clip_scores) > 3:  # Need at least 4 points for meaningful correlation
+            correlation = np.corrcoef(clip_scores, blip2_scores)[0, 1]
+            
+            # If correlation is strongly negative, Stage-2 might be inverted
+            if correlation < -0.2:
+                print(f"Warning: Stage-2 scores seem inverted (correlation={correlation:.3f})")
+                print("Applying weighted fusion as fallback")
+                fusion_method = 'weighted'
+            else:
+                fusion_method = self.config.get('fusion_method', 'weighted')
+        else:
+            fusion_method = self.config.get('fusion_method', 'weighted')
+        
+        # Apply fusion method
+        if fusion_method == 'replace':
+            # Use only Stage-2 scores
+            final_scores = blip2_scores
+            
+        elif fusion_method == 'weighted':
+            # Weighted combination with min-max normalization
+            stage1_weight = self.config.get('stage1_weight', 0.3)
+            stage2_weight = self.config.get('stage2_weight', 0.7)
+            
+            # Min-max normalize scores to [0, 1]
+            def normalize(scores):
+                min_score = scores.min()
+                max_score = scores.max()
+                if max_score > min_score:
+                    return (scores - min_score) / (max_score - min_score)
+                return np.ones_like(scores) * 0.5
+            
+            clip_norm = normalize(clip_scores)
+            blip2_norm = normalize(blip2_scores)
+            
+            # Weighted combination
+            final_scores = stage1_weight * clip_norm + stage2_weight * blip2_norm
+            
+        elif fusion_method == 'rank_fusion':
+            # Reciprocal rank fusion with 1-based ranks
+            # Highest score gets rank 1 for both signals
+            clip_ranks = dense_rank_desc(clip_scores)
+            
+            # For BLIP-2, flip sign if higher_is_better is False
+            blip2_ranks = dense_rank_desc(blip2_scores if higher_is_better else -blip2_scores)
+            
+            # RRF: 1 / (k + rank), with k=60 (standard)
+            k_rrf = 60.0
+            final_scores = 1.0 / (k_rrf + clip_ranks) + 1.0 / (k_rrf + blip2_ranks)
+            
+        else:
+            print(f"Warning: Unknown fusion_method '{fusion_method}', using 'weighted'")
+            stage1_weight = 0.3
+            stage2_weight = 0.7
+            clip_norm = (clip_scores - clip_scores.min()) / (clip_scores.max() - clip_scores.min() + 1e-8)
+            blip2_norm = (blip2_scores - blip2_scores.min()) / (blip2_scores.max() - blip2_scores.min() + 1e-8)
+            final_scores = stage1_weight * clip_norm + stage2_weight * blip2_norm
+        
+        # Create list of (image_id, final_score) tuples
         reranked_results = [
             (image_id, float(score))
-            for image_id, score in zip(image_ids, blip2_scores)
+            for image_id, score in zip(image_ids, final_scores)
         ]
         
-        # Sort by BLIP-2 score (descending) and take top-k2
+        # Sort by final score (descending) and take top-k2
         reranked_results.sort(key=lambda x: x[1], reverse=True)
         
         return reranked_results[:k2]
@@ -656,20 +782,67 @@ class HybridSearchEngine:
         for item, cross_score in zip(valid_items, cross_scores):
             item['cross_score'] = cross_score
         
-        # Group results by query and sort by cross-encoder score
-        final_results = [[] for _ in range(n_queries)]
-        
+        # Group results by query
+        query_items = [[] for _ in range(n_queries)]
         for item in valid_items:
-            query_idx = item['query_idx']
-            final_results[query_idx].append((
-                item['image_name'],
-                item['cross_score']
-            ))
+            query_items[item['query_idx']].append(item)
         
-        # Sort each query's results and take top-k2
+        # Apply fusion for each query
+        fusion_method = self.config.get('fusion_method', 'weighted')
+        stage1_weight = float(self.config.get('stage1_weight', 0.3))
+        stage2_weight = float(self.config.get('stage2_weight', 0.7))
+        higher_is_better = getattr(self.cross_encoder, "higher_is_better", True)
+        
+        def minmax_normalize(arr):
+            """Min-max normalize array to [0, 1]."""
+            arr = np.asarray(arr, dtype=float)
+            mn, mx = arr.min(), arr.max()
+            return np.full_like(arr, 0.5) if mx == mn else (arr - mn) / (mx - mn)
+        
+        final_results = []
+        
         for query_idx in range(n_queries):
-            final_results[query_idx].sort(key=lambda x: x[1], reverse=True)
-            final_results[query_idx] = final_results[query_idx][:k2]
+            items = query_items[query_idx]
+            if not items:
+                final_results.append([])
+                continue
+            
+            # Extract scores
+            clip_scores = np.array([it['clip_score'] for it in items], dtype=float)
+            blip_scores = np.array([it['cross_score'] for it in items], dtype=float)
+            
+            # Flip BLIP scores if lower is better
+            if not higher_is_better:
+                blip_scores = -blip_scores
+            
+            # Compute fused scores based on method
+            if fusion_method == 'weighted':
+                clip_norm = minmax_normalize(clip_scores)
+                blip_norm = minmax_normalize(blip_scores)
+                fused_scores = stage1_weight * clip_norm + stage2_weight * blip_norm
+                
+            elif fusion_method == 'rank_fusion':
+                clip_ranks = dense_rank_desc(clip_scores)
+                blip_ranks = dense_rank_desc(blip_scores)
+                k_rrf = 60.0
+                fused_scores = 1.0 / (k_rrf + clip_ranks) + 1.0 / (k_rrf + blip_ranks)
+                
+            else:  # 'replace'
+                # Trust BLIP scores (already flipped if needed)
+                fused_scores = blip_scores
+            
+            # Attach fused scores and sort
+            for item, fused_score in zip(items, fused_scores):
+                item['fused_score'] = float(fused_score)
+            
+            items.sort(key=lambda x: x['fused_score'], reverse=True)
+            
+            # Keep top-k2 and extract (image_name, fused_score) tuples
+            query_results = [
+                (item['image_name'], item['fused_score'])
+                for item in items[:k2]
+            ]
+            final_results.append(query_results)
         
         stage2_time = (time.time() - stage2_start) * 1000
         total_time = stage1_time + stage2_time

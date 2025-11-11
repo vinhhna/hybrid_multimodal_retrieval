@@ -20,11 +20,55 @@ from tqdm import tqdm
 import yaml
 
 try:
-    from transformers import Blip2Processor, Blip2ForConditionalGeneration
+    from transformers import Blip2Processor, Blip2ForConditionalGeneration, LogitsProcessor
 except ImportError:
     raise ImportError(
         "transformers not found. Install with: pip install transformers"
     )
+
+
+class YesNoLogitsProcessor(LogitsProcessor):
+    """
+    Logits processor that restricts the first generated token to yes/no variants.
+    
+    This ensures P(yes) + P(no) is always close to 1.0, providing stable probability
+    estimates for scoring.
+    """
+    
+    def __init__(self, yes_token_ids: List[int], no_token_ids: List[int]):
+        """
+        Initialize the processor.
+        
+        Args:
+            yes_token_ids: List of token IDs for "yes" variants
+            no_token_ids: List of token IDs for "no" variants
+        """
+        self.yes_token_ids = yes_token_ids
+        self.no_token_ids = no_token_ids
+        self.allowed_token_ids = set(yes_token_ids + no_token_ids)
+    
+    def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor) -> torch.FloatTensor:
+        """
+        Mask logits to only allow yes/no tokens.
+        
+        Args:
+            input_ids: Current input token IDs
+            scores: Logits for next token prediction
+        
+        Returns:
+            Masked logits where non-yes/no tokens have -inf
+        """
+        # Only apply on first generated token (when input_ids has prompt + eos)
+        # For subsequent tokens, don't mask (though we only generate 1 token anyway)
+        
+        # Create mask: -inf for disallowed tokens
+        mask = torch.full_like(scores, float('-inf'))
+        
+        # Allow yes/no tokens
+        for token_id in self.allowed_token_ids:
+            mask[:, token_id] = 0.0
+        
+        return scores + mask
 
 
 class CrossEncoder:
@@ -101,10 +145,16 @@ class CrossEncoder:
         self.batch_size = self.config['scoring'].get('batch_size', 8)
         self.max_text_length = self.config['scoring'].get('max_text_length', 77)
         
+        # Scoring direction flag (higher = better for probability-based scoring)
+        self.higher_is_better = True
+        
+        # Precompute token IDs for yes/no variants
+        self._setup_yesno_tokens()
+        
         # Memory management
         self.max_batch_size = self.config['memory'].get('max_batch_size', 16)
         self.fallback_batch_size = self.config['memory'].get('fallback_batch_size', 4)
-        self.clear_cache = self.config['memory'].get('clear_cache_after_batch', True)
+        self.clear_cache = self.config['memory'].get('clear_cache_after_batch', False)
         
         print("✓ BLIP-2 Cross-Encoder initialized successfully")
     
@@ -128,13 +178,43 @@ class CrossEncoder:
                 'memory': {
                     'max_batch_size': 16,
                     'fallback_batch_size': 4,
-                    'clear_cache_after_batch': True
+                    'clear_cache_after_batch': False
                 },
                 'optimization': {'use_fp16': True}
             }
             print(f"Warning: Config not found at {config_path}, using defaults")
         
         return config
+    
+    def _setup_yesno_tokens(self):
+        """
+        Precompute token IDs for yes/no variants.
+        
+        We check multiple variants to ensure robust probability computation:
+        - "yes", " yes", "Yes", " Yes"
+        - "no", " no", "No", " No"
+        """
+        tokenizer = self.processor.tokenizer
+        
+        # Get all yes/no token variants
+        yes_variants = ["yes", " yes", "Yes", " Yes"]
+        no_variants = ["no", " no", "No", " No"]
+        
+        self.yes_token_ids = []
+        self.no_token_ids = []
+        
+        for variant in yes_variants:
+            tokens = tokenizer.encode(variant, add_special_tokens=False)
+            if tokens and tokens[0] not in self.yes_token_ids:
+                self.yes_token_ids.append(tokens[0])
+        
+        for variant in no_variants:
+            tokens = tokenizer.encode(variant, add_special_tokens=False)
+            if tokens and tokens[0] not in self.no_token_ids:
+                self.no_token_ids.append(tokens[0])
+        
+        print(f"  ✓ Yes token IDs: {self.yes_token_ids}")
+        print(f"  ✓ No token IDs: {self.no_token_ids}")
     
     def score_pair(
         self,
@@ -275,34 +355,92 @@ class CrossEncoder:
         images: List[Union[str, Path, Image.Image]]
     ) -> List[float]:
         """
-        Score text-image pairs using BLIP-2 (Hugging Face).
+        Score text-image pairs using BLIP-2 with batched processing.
         
-        Uses question-answering format to get interpretable similarity scores
-        based on yes/no probability from BLIP-2's language model.
+        Uses question-answering format with P(yes)/(P(yes)+P(no)) scoring.
+        This provides a stable probability score where higher = more relevant.
         
         Args:
             texts: List of text queries
             images: List of images (paths or PIL Images)
         
         Returns:
-            List of relevance scores in [0, 1] range
+            List of relevance scores in [0, 1] range, where higher = better
         """
         # Load images
         pil_images = []
         for img in images:
             if isinstance(img, (str, Path)):
-                img = Image.open(img).convert('RGB')
+                try:
+                    img = Image.open(img).convert('RGB')
+                except Exception as e:
+                    print(f"Warning: Failed to load image {img}: {e}")
+                    # Use a blank image as fallback
+                    img = Image.new('RGB', (224, 224), color='white')
             elif not isinstance(img, Image.Image):
                 raise TypeError(f"Expected PIL Image, str, or Path, got {type(img)}")
             pil_images.append(img)
         
-        # Score each pair individually for better control
-        scores = []
-        for text, image in zip(texts, pil_images):
-            score = self._score_single_pair(text, image)
-            scores.append(score)
+        # Format prompts as yes/no questions
+        prompts = [f"Question: Does this image show {text.lower()}? Answer:" for text in texts]
         
-        return scores
+        try:
+            # Process all pairs in batch
+            inputs = self.processor(
+                images=pil_images,
+                text=prompts,
+                return_tensors="pt",
+                padding=True
+            ).to(self.device)
+            
+            if self.use_fp16:
+                # Convert floating point tensors to half precision (future-proof)
+                inputs = {
+                    k: v.half() if v.is_floating_point() else v 
+                    for k, v in inputs.items()
+                }
+            
+            # Create logits processor to restrict to yes/no tokens (optional stability)
+            logits_processor = YesNoLogitsProcessor(
+                yes_token_ids=self.yes_token_ids,
+                no_token_ids=self.no_token_ids
+            )
+            
+            # Generate with score output
+            with torch.no_grad():
+                outputs = self.model.generate(
+                    **inputs,
+                    max_new_tokens=1,
+                    output_scores=True,
+                    return_dict_in_generate=True,
+                    do_sample=False,
+                    logits_processor=[logits_processor]  # Restrict to yes/no
+                )
+                
+                # Extract logits for first token: shape (batch_size, vocab_size)
+                logits = outputs.scores[0]
+                
+                # Compute P(yes) and P(no) from logits
+                probs = torch.nn.functional.softmax(logits, dim=-1)
+                
+                # Sum probabilities over all yes/no variants
+                prob_yes = sum(probs[:, token_id] for token_id in self.yes_token_ids)
+                prob_no = sum(probs[:, token_id] for token_id in self.no_token_ids)
+                
+                # Compute normalized score: P(yes) / (P(yes) + P(no))
+                # With logits processor, total should always be ~1.0
+                total = prob_yes + prob_no
+                scores = (prob_yes / total).cpu().numpy()
+                
+                # Handle edge cases where total is very small (shouldn't happen with processor)
+                scores = np.where(total.cpu().numpy() > 1e-8, scores, 0.5)
+                
+                return scores.tolist()
+                
+        except Exception as e:
+            print(f"Warning: Batch scoring failed: {e}")
+            # Fallback: return neutral scores
+            return [0.5] * len(texts)
     
     def _score_image_text_batch(
         self,
@@ -311,73 +449,6 @@ class CrossEncoder:
     ) -> List[float]:
         """Score image-text pairs (swap of text-image)."""
         return self._score_text_image_batch(texts, images)
-    
-    def _score_single_pair(
-        self,
-        text: str,
-        image: Image.Image
-    ) -> float:
-        """
-        Score a single text-image pair using yes/no probability.
-        
-        Uses BLIP-2's question-answering capability to ask:
-        "Question: Does this image show {text}? Answer:"
-        and computes P(yes) / (P(yes) + P(no)) as the similarity score.
-        
-        Args:
-            text: Text query
-            image: PIL Image
-        
-        Returns:
-            Similarity score in [0, 1] range
-        """
-        try:
-            # Format as yes/no question
-            prompt = f"Question: Does this image show {text.lower()}? Answer:"
-            
-            # Process inputs
-            inputs = self.processor(
-                images=image,
-                text=prompt,
-                return_tensors="pt"
-            ).to(self.device)
-            
-            if self.use_fp16:
-                inputs = {k: v.half() if v.dtype == torch.float32 else v for k, v in inputs.items()}
-            
-            # Generate with forced yes/no answer
-            with torch.no_grad():
-                # Get model outputs without generation
-                outputs = self.model.generate(
-                    **inputs,
-                    max_new_tokens=1,
-                    output_scores=True,
-                    return_dict_in_generate=True,
-                    do_sample=False
-                )
-                
-                # Get the logits for the first generated token
-                logits = outputs.scores[0][0]  # Shape: (vocab_size,)
-                
-                # Get token IDs for "yes" and "no"
-                yes_token_id = self.processor.tokenizer.encode(" yes", add_special_tokens=False)[0]
-                no_token_id = self.processor.tokenizer.encode(" no", add_special_tokens=False)[0]
-                
-                # Get probabilities
-                probs = torch.nn.functional.softmax(logits, dim=-1)
-                prob_yes = probs[yes_token_id].item()
-                prob_no = probs[no_token_id].item()
-                
-                # Normalize to get score in [0, 1]
-                total = prob_yes + prob_no
-                score = prob_yes / total if total > 0 else 0.5
-                
-                return score
-                
-        except Exception as e:
-            print(f"Warning: Scoring failed for text '{text[:50]}...': {e}")
-            # Fallback: use neutral score
-            return 0.5
     
     def _handle_oom(
         self,

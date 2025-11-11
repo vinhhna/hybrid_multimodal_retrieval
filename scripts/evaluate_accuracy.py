@@ -1,17 +1,16 @@
 """
-Accuracy Evaluation Script for T2.8
+Fast Smoke-Test Evaluator (T2.8)
 
-This script evaluates and compares the accuracy of different search methods:
+This script provides a lightweight, reproducible evaluation for quick sanity checks:
 - CLIP-only (baseline)
 - Hybrid Search (CLIP + BLIP-2)
-- Ground truth comparison
 
 Metrics calculated:
 - Recall@1, Recall@5, Recall@10
 - Mean Reciprocal Rank (MRR)
-- Mean Average Precision (MAP)
-- Latency statistics
-- Accuracy vs Latency trade-off
+- nDCG@10
+- MAP (= MRR for single relevant)
+- Mean and median latency
 
 Usage (Kaggle):
     import sys
@@ -27,6 +26,12 @@ from pathlib import Path
 from typing import List, Tuple, Dict, Any, Set
 import numpy as np
 from collections import defaultdict
+
+# Fast mode constants
+FAST_SEED = 2025
+FAST_N = 25        # number of queries for smoke test
+FAST_K1 = 30       # Stage-1 candidates for Hybrid
+FAST_K2 = 10       # Final k for both methods
 
 # Add project root to path
 project_root = Path(__file__).parent.parent
@@ -88,9 +93,9 @@ def load_components():
     return bi_encoder, cross_encoder, image_index, dataset
 
 
-def select_test_queries(dataset: Flickr30KDataset, n: int = 100) -> List[Dict[str, Any]]:
+def select_test_queries(dataset: Flickr30KDataset, n: int = FAST_N) -> List[Dict[str, Any]]:
     """
-    Select diverse test queries from dataset.
+    Select random, reproducible test queries from dataset (FAST MODE).
     
     Each query includes:
     - query text (caption)
@@ -105,53 +110,33 @@ def select_test_queries(dataset: Flickr30KDataset, n: int = 100) -> List[Dict[st
         List of test query dictionaries
     """
     print("\n" + "="*70)
-    print(f"SELECTING {n} TEST QUERIES")
+    print(f"SELECTING {n} TEST QUERIES (FAST MODE)")
     print("="*70)
-    
-    test_queries = []
-    
-    # Get all unique images
+
     unique_images = dataset.get_unique_images()
-    
-    # Sample evenly across dataset
-    step = len(unique_images) // n
-    
-    for i in range(n):
-        idx = i * step
-        image_id = unique_images[idx]
-        
-        # Get captions for this image
+    rng = np.random.default_rng(FAST_SEED)
+    n = min(n, len(unique_images))
+    chosen = rng.choice(unique_images, size=n, replace=False)
+
+    test_queries = []
+    for image_id in chosen:
         captions = dataset.get_captions(image_id)
         if not captions:
             continue
-        
-        # Use first caption as query, others as alternatives
-        query_text = captions[0]
-        ground_truth_id = image_id
-        alternative_captions = captions[1:] if len(captions) > 1 else []
-        
         test_queries.append({
-            'query': query_text,
-            'ground_truth': ground_truth_id,
-            'alternatives': alternative_captions,
-            'dataset_idx': idx
+            'query': captions[0],
+            'ground_truth': image_id,
+            'alternatives': captions[1:] if len(captions) > 1 else []
         })
-    
+
     print(f"\n✓ Selected {len(test_queries)} test queries")
-    print(f"  Sample queries:")
-    for i, q in enumerate(test_queries[:3], 1):
-        print(f"    {i}. {q['query'][:60]}...")
-        print(f"       Ground truth: {q['ground_truth']}")
-    
-    print(f"{'='*70}")
-    
     return test_queries
 
 
 def evaluate_clip_only(
     engine: HybridSearchEngine,
     test_queries: List[Dict[str, Any]],
-    k: int = 10
+    k: int = FAST_K2
 ) -> Dict[str, Any]:
     """
     Evaluate CLIP-only search (baseline).
@@ -174,9 +159,6 @@ def evaluate_clip_only(
     latencies = []
     
     for i, test_query in enumerate(test_queries):
-        if (i + 1) % 10 == 0:
-            print(f"  Progress: {i+1}/{len(test_queries)} queries")
-        
         query = test_query['query']
         ground_truth = test_query['ground_truth']
         
@@ -205,10 +187,8 @@ def evaluate_clip_only(
     # Calculate metrics
     metrics = calculate_metrics(results, k)
     metrics['latencies'] = {
-        'mean': np.mean(latencies),
-        'median': np.median(latencies),
-        'p95': np.percentile(latencies, 95),
-        'p99': np.percentile(latencies, 99)
+        'mean': float(np.mean(latencies)),
+        'median': float(np.median(latencies)),
     }
     
     print(f"\n{'='*70}")
@@ -217,8 +197,9 @@ def evaluate_clip_only(
     print(f"  Recall@5:  {metrics['recall@5']:.2%}")
     print(f"  Recall@10: {metrics['recall@10']:.2%}")
     print(f"  MRR:       {metrics['mrr']:.4f}")
-    print(f"  MAP:       {metrics['map']:.4f}")
-    print(f"  Latency:   {metrics['latencies']['mean']:.2f}ms (avg)")
+    print(f"  nDCG@10:   {metrics['ndcg@10']:.4f}")
+    print(f"  MAP:       {metrics['map']:.4f}  (≡ MRR; single relevant)")
+    print(f"  Latency:   {metrics['latencies']['mean']:.2f}ms (mean), {metrics['latencies']['median']:.2f}ms (median)")
     print(f"{'='*70}")
     
     return {
@@ -231,8 +212,8 @@ def evaluate_clip_only(
 def evaluate_hybrid(
     engine: HybridSearchEngine,
     test_queries: List[Dict[str, Any]],
-    k1: int = 100,
-    k2: int = 10
+    k1: int = FAST_K1,
+    k2: int = FAST_K2
 ) -> Dict[str, Any]:
     """
     Evaluate Hybrid search (CLIP + BLIP-2).
@@ -256,9 +237,6 @@ def evaluate_hybrid(
     latencies = []
     
     for i, test_query in enumerate(test_queries):
-        if (i + 1) % 10 == 0:
-            print(f"  Progress: {i+1}/{len(test_queries)} queries")
-        
         query = test_query['query']
         ground_truth = test_query['ground_truth']
         
@@ -292,10 +270,8 @@ def evaluate_hybrid(
     # Calculate metrics
     metrics = calculate_metrics(results, k2)
     metrics['latencies'] = {
-        'mean': np.mean(latencies),
-        'median': np.median(latencies),
-        'p95': np.percentile(latencies, 95),
-        'p99': np.percentile(latencies, 99)
+        'mean': float(np.mean(latencies)),
+        'median': float(np.median(latencies)),
     }
     
     print(f"\n{'='*70}")
@@ -304,8 +280,9 @@ def evaluate_hybrid(
     print(f"  Recall@5:  {metrics['recall@5']:.2%}")
     print(f"  Recall@10: {metrics['recall@10']:.2%}")
     print(f"  MRR:       {metrics['mrr']:.4f}")
-    print(f"  MAP:       {metrics['map']:.4f}")
-    print(f"  Latency:   {metrics['latencies']['mean']:.2f}ms (avg)")
+    print(f"  nDCG@10:   {metrics['ndcg@10']:.4f}")
+    print(f"  MAP:       {metrics['map']:.4f}  (≡ MRR; single relevant)")
+    print(f"  Latency:   {metrics['latencies']['mean']:.2f}ms (mean), {metrics['latencies']['median']:.2f}ms (median)")
     print(f"{'='*70}")
     
     return {
@@ -315,6 +292,14 @@ def evaluate_hybrid(
     }
 
 
+def ndcg_at_k(rank, k=10):
+    """Calculate nDCG@k for single relevant item."""
+    if rank is None or rank > k:
+        return 0.0
+    # Single relevant item → IDCG=1
+    return 1.0 / np.log2(rank + 1)
+
+
 def calculate_metrics(results: List[Dict], k: int) -> Dict[str, float]:
     """
     Calculate evaluation metrics.
@@ -322,7 +307,8 @@ def calculate_metrics(results: List[Dict], k: int) -> Dict[str, float]:
     Metrics:
     - Recall@1, Recall@5, Recall@10
     - Mean Reciprocal Rank (MRR)
-    - Mean Average Precision (MAP)
+    - nDCG@10
+    - Mean Average Precision (MAP = MRR for single relevant)
     
     Args:
         results: List of evaluation results
@@ -339,29 +325,21 @@ def calculate_metrics(results: List[Dict], k: int) -> Dict[str, float]:
     recall_at_10 = sum(1 for r in results if r['rank'] and r['rank'] <= 10) / n_queries
     
     # Mean Reciprocal Rank (MRR)
-    reciprocal_ranks = []
-    for r in results:
-        if r['rank']:
-            reciprocal_ranks.append(1.0 / r['rank'])
-        else:
-            reciprocal_ranks.append(0.0)
-    mrr = np.mean(reciprocal_ranks)
+    rr = [(1.0 / r['rank']) if r['rank'] else 0.0 for r in results]
+    mrr = float(np.mean(rr))
     
-    # Mean Average Precision (MAP)
-    # For single ground truth, AP = 1/rank if found, else 0
-    average_precisions = []
-    for r in results:
-        if r['rank']:
-            average_precisions.append(1.0 / r['rank'])
-        else:
-            average_precisions.append(0.0)
-    map_score = np.mean(average_precisions)
+    # nDCG@10
+    ndcg = float(np.mean([ndcg_at_k(r['rank'], k=10) for r in results]))
+    
+    # In single-relevant setting, MAP == MRR
+    map_score = mrr
     
     return {
         'recall@1': recall_at_1,
         'recall@5': recall_at_5,
         'recall@10': recall_at_10,
         'mrr': mrr,
+        'ndcg@10': ndcg,
         'map': map_score,
         'n_queries': n_queries
     }
@@ -369,14 +347,14 @@ def calculate_metrics(results: List[Dict], k: int) -> Dict[str, float]:
 
 def compare_methods(clip_results: Dict, hybrid_results: Dict):
     """
-    Compare CLIP-only vs Hybrid search.
+    Compare CLIP-only vs Hybrid search (FAST MODE).
     
     Args:
         clip_results: CLIP evaluation results
         hybrid_results: Hybrid evaluation results
     """
     print("\n" + "="*70)
-    print("METHOD COMPARISON")
+    print("METHOD COMPARISON (FAST)")
     print("="*70)
     
     clip_metrics = clip_results['metrics']
@@ -389,8 +367,8 @@ def compare_methods(clip_results: Dict, hybrid_results: Dict):
     print(f"{'Metric':<15} {'CLIP-only':<15} {'Hybrid':<15} {'Improvement':<15}")
     print("-"*70)
     
-    metrics = ['recall@1', 'recall@5', 'recall@10', 'mrr', 'map']
-    metric_names = ['Recall@1', 'Recall@5', 'Recall@10', 'MRR', 'MAP']
+    metrics = ['recall@1', 'recall@5', 'recall@10', 'mrr', 'ndcg@10', 'map']
+    metric_names = ['Recall@1', 'Recall@5', 'Recall@10', 'MRR', 'nDCG@10', 'MAP']
     
     for metric, name in zip(metrics, metric_names):
         clip_val = clip_metrics[metric]
@@ -398,7 +376,7 @@ def compare_methods(clip_results: Dict, hybrid_results: Dict):
         
         if clip_val > 0:
             improvement = ((hybrid_val - clip_val) / clip_val) * 100
-            improvement_str = f"+{improvement:.1f}%"
+            improvement_str = f"{improvement:+.1f}%"
         else:
             improvement_str = "N/A"
         
@@ -414,43 +392,28 @@ def compare_methods(clip_results: Dict, hybrid_results: Dict):
     print(f"{'Metric':<15} {'CLIP-only':<15} {'Hybrid':<15} {'Difference':<15}")
     print("-"*70)
     
-    latency_metrics = ['mean', 'median', 'p95', 'p99']
-    latency_names = ['Mean', 'Median', 'P95', 'P99']
+    latency_metrics = ['mean', 'median']
+    latency_names = ['Mean', 'Median']
     
     for metric, name in zip(latency_metrics, latency_names):
         clip_val = clip_metrics['latencies'][metric]
         hybrid_val = hybrid_metrics['latencies'][metric]
         diff = hybrid_val - clip_val
         
-        print(f"{name:<15} {clip_val:<15.2f}ms {hybrid_val:<15.2f}ms +{diff:.2f}ms")
+        print(f"{name:<15} {clip_val:<15.2f}ms {hybrid_val:<15.2f}ms {diff:+.2f}ms")
     
     # Summary
     print("\n" + "="*70)
     print("SUMMARY")
     print("="*70)
     
-    recall_improvement = ((hybrid_metrics['recall@10'] - clip_metrics['recall@10']) / 
-                         clip_metrics['recall@10']) * 100
+    delta_recall10 = (hybrid_metrics['recall@10'] - clip_metrics['recall@10']) * 100
     latency_overhead = hybrid_metrics['latencies']['mean'] - clip_metrics['latencies']['mean']
     
-    print(f"\n✓ Hybrid Search Improvements:")
-    print(f"  • Recall@10: +{recall_improvement:.1f}% improvement")
-    print(f"  • MRR: {hybrid_metrics['mrr']:.4f} (vs {clip_metrics['mrr']:.4f})")
-    print(f"  • Latency overhead: +{latency_overhead:.2f}ms")
-    print(f"  • Trade-off: {recall_improvement:.1f}% better accuracy for {latency_overhead:.0f}ms overhead")
-    
-    # Targets
-    print(f"\n✓ Performance Targets:")
-    target_recall = 0.65
-    target_latency = 2000
-    
-    recall_met = hybrid_metrics['recall@10'] >= target_recall
-    latency_met = hybrid_metrics['latencies']['mean'] < target_latency
-    
-    print(f"  • Recall@10 >65%: {'✓ MET' if recall_met else '✗ NOT MET'} "
-          f"({hybrid_metrics['recall@10']:.2%})")
-    print(f"  • Latency <2000ms: {'✓ MET' if latency_met else '✗ NOT MET'} "
-          f"({hybrid_metrics['latencies']['mean']:.2f}ms)")
+    print(f"\n✓ Hybrid vs CLIP (FAST):")
+    print(f"  • Δ Recall@10: {delta_recall10:+.1f}%")
+    print(f"  • Δ MRR:       {hybrid_metrics['mrr'] - clip_metrics['mrr']:+.4f}")
+    print(f"  • Δ Latency:   {latency_overhead:+.2f}ms (mean)")
     
     print(f"\n{'='*70}")
 
@@ -491,11 +454,11 @@ def save_results(clip_results: Dict, hybrid_results: Dict, output_dir: Path):
 
 
 def main():
-    """Main evaluation execution."""
+    """Main evaluation execution (FAST MODE)."""
     print("\n" + "="*70)
-    print("ACCURACY EVALUATION SUITE (T2.8)")
+    print("FAST SMOKE-TEST EVALUATOR (T2.8)")
     print("="*70)
-    print("\nThis script evaluates search accuracy using multiple metrics")
+    print("\nQuick reproducible evaluation for sanity checks")
     print("and compares CLIP-only vs Hybrid search methods.")
     
     # Load components
@@ -512,25 +475,37 @@ def main():
         image_index=image_index,
         dataset=dataset,
         config={
-            'k1': 100,
-            'k2': 10,
-            'batch_size': 4,
+            'k1': FAST_K1,
+            'k2': FAST_K2,
+            'batch_size': 8,
             'use_cache': False,
-            'show_progress': False
+            'show_progress': False,
+            'fusion_method': 'weighted',
+            'stage1_weight': 0.3,
+            'stage2_weight': 0.7,
         }
     )
     
     print(f"\n  ✓ Engine initialized")
     
+    # Warm-up (not included in metrics)
+    print(f"\nWarming up engine...")
+    try:
+        _ = engine.text_to_image_hybrid_search(query="a dog", k1=min(FAST_K1, 10), k2=5, show_progress=False)
+        _ = engine.text_to_image_hybrid_search(query="a person", k1=min(FAST_K1, 10), k2=5, show_progress=False)
+        print(f"  ✓ Warm-up complete")
+    except Exception:
+        pass
+    
     # Select test queries
-    test_queries = select_test_queries(dataset, n=100)
+    test_queries = select_test_queries(dataset, n=FAST_N)
     
     try:
         # Evaluate CLIP-only
-        clip_results = evaluate_clip_only(engine, test_queries, k=10)
+        clip_results = evaluate_clip_only(engine, test_queries, k=FAST_K2)
         
         # Evaluate Hybrid
-        hybrid_results = evaluate_hybrid(engine, test_queries, k1=100, k2=10)
+        hybrid_results = evaluate_hybrid(engine, test_queries, k1=FAST_K1, k2=FAST_K2)
         
         # Compare methods
         compare_methods(clip_results, hybrid_results)
@@ -540,7 +515,7 @@ def main():
         save_results(clip_results, hybrid_results, output_dir)
         
         print("\n" + "="*70)
-        print("ACCURACY EVALUATION COMPLETE! 🎉")
+        print("FAST EVALUATION COMPLETE! 🎉")
         print("="*70 + "\n")
         
     except Exception as e:

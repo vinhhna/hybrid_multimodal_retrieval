@@ -46,8 +46,15 @@ class BiEncoder:
             pretrained: Pretrained weights to use (default: 'openai')
             device: Device to use ('cuda' or 'cpu'). Auto-detects if None.
         """
+        # Canonicalize model name: convert '/' to '-' (e.g., 'ViT-B/32' → 'ViT-B-32')
+        model_name = model_name.replace('/', '-')
         self.model_name = model_name
-        self.device = device or ('cuda' if torch.cuda.is_available() else 'cpu')
+        
+        # Preserve explicit device strings (e.g., 'cuda:1')
+        if device is None:
+            device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        # Keep device string verbatim - do NOT coerce 'cuda:1' -> 'cuda'
+        self.device = device
         
         print(f"Loading CLIP model: {model_name} ({pretrained})")
         print(f"Using device: {self.device}")
