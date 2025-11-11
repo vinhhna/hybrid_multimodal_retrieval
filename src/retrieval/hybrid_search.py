@@ -907,12 +907,13 @@ class HybridSearchEngine:
         # Default test queries from dataset
         if test_queries is None:
             print(f"\nGenerating {n_queries} test queries from dataset...")
+            unique_images = self.dataset.get_unique_images()
             all_captions = []
-            for i, item in enumerate(self.dataset):
-                if i >= n_queries:
-                    break
-                if item['captions']:
-                    all_captions.append(item['captions'][0])
+            for i in range(min(n_queries, len(unique_images))):
+                image_id = unique_images[i]
+                captions = self.dataset.get_captions(image_id)
+                if captions:
+                    all_captions.append(captions[0])
             test_queries = all_captions[:n_queries]
             print(f"  ✓ Generated {len(test_queries)} test queries")
         

@@ -340,13 +340,14 @@ def test_image_to_image(engine: HybridSearchEngine):
     
     # Get a random image from dataset
     dataset = engine.dataset
-    query_item = dataset[100]  # Use image at index 100
-    query_image_path = query_item['path']
-    query_image_id = query_item['image_id']
+    unique_images = dataset.get_unique_images()
+    query_image_id = unique_images[100]  # Use image at index 100
+    query_image_path = dataset.images_dir / query_image_id
     
     print(f"\nQuery image: {query_image_id}")
-    if query_item['captions']:
-        print(f"Caption: {query_item['captions'][0]}")
+    captions = dataset.get_captions(query_image_id)
+    if captions:
+        print(f"Caption: {captions[0]}")
     
     print(f"\nSearching for similar images (k=10)...")
     start = time.time()
@@ -453,10 +454,14 @@ def test_latency_benchmark(engine: HybridSearchEngine):
     print("\nGenerating 100 test queries...")
     test_queries = []
     dataset = engine.dataset
+    unique_images = dataset.get_unique_images()
+    step = len(unique_images) // 100
+    
     for i in range(100):
-        item = dataset[i * (len(dataset) // 100)]
-        if item['captions']:
-            test_queries.append(item['captions'][0])
+        image_id = unique_images[i * step]
+        captions = dataset.get_captions(image_id)
+        if captions:
+            test_queries.append(captions[0])
     
     print(f"  ✓ Generated {len(test_queries)} queries")
     

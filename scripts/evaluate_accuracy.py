@@ -110,20 +110,25 @@ def select_test_queries(dataset: Flickr30KDataset, n: int = 100) -> List[Dict[st
     
     test_queries = []
     
+    # Get all unique images
+    unique_images = dataset.get_unique_images()
+    
     # Sample evenly across dataset
-    step = len(dataset) // n
+    step = len(unique_images) // n
     
     for i in range(n):
         idx = i * step
-        item = dataset[idx]
+        image_id = unique_images[idx]
         
-        if not item['captions']:
+        # Get captions for this image
+        captions = dataset.get_captions(image_id)
+        if not captions:
             continue
         
         # Use first caption as query, others as alternatives
-        query_text = item['captions'][0]
-        ground_truth_id = item['image_id']
-        alternative_captions = item['captions'][1:] if len(item['captions']) > 1 else []
+        query_text = captions[0]
+        ground_truth_id = image_id
+        alternative_captions = captions[1:] if len(captions) > 1 else []
         
         test_queries.append({
             'query': query_text,
