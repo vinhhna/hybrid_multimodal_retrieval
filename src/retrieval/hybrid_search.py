@@ -211,10 +211,10 @@ class HybridSearchEngine:
             'use_cache': False,  # Enable query caching
             'show_progress': True,  # Show progress bars
             
-            # Score fusion
+            # Score fusion - safer defaults (0.6/0.4) to avoid over-trusting Stage-2
             'fusion_method': 'weighted',  # 'replace', 'weighted', or 'rank_fusion'
-            'stage1_weight': 0.3,  # Weight for CLIP scores
-            'stage2_weight': 0.7,  # Weight for BLIP-2 scores
+            'stage1_weight': 0.6,  # Weight for CLIP scores (increased for safety)
+            'stage2_weight': 0.4,  # Weight for BLIP-2 scores (decreased for safety)
         }
         
         if config is not None:
@@ -456,6 +456,10 @@ class HybridSearchEngine:
             print("Falling back to Stage-1 results")
             return candidates[:k2]
         
+        # Agreement quality thresholds
+        LOW_AGREE = 0.15   # |rho| below this → weak agreement
+        NEGATIVE = -0.20   # rho below this → inversion
+        
         # Get scoring direction from cross-encoder
         stage2_higher = getattr(self.cross_encoder, "higher_is_better", True)
         
@@ -465,33 +469,37 @@ class HybridSearchEngine:
         # Orient Stage-1 scores: try both signs and choose the one that best aligns with Stage-2
         clip_raw = np.asarray(clip_scores, dtype=np.float32)
         if len(clip_raw) > 3:
-            c1 = np.corrcoef(clip_raw, blip2_for_fusion)[0, 1]
-            c2 = np.corrcoef(-clip_raw, blip2_for_fusion)[0, 1]
-            clip_for_fusion = clip_raw if abs(c1) >= abs(c2) else (-clip_raw)
+            c_pos = np.corrcoef(clip_raw, blip2_for_fusion)[0, 1]
+            c_neg = np.corrcoef(-clip_raw, blip2_for_fusion)[0, 1]
+            clip_for_fusion = clip_raw if abs(c_pos) >= abs(c_neg) else (-clip_raw)
             correlation = np.corrcoef(clip_for_fusion, blip2_for_fusion)[0, 1]
         else:
             clip_for_fusion = clip_raw
             correlation = 0.0
         
-        # Guardrail 2: Correct inversion when BLIP-2 disagrees strongly with Stage-1
-        fusion_method = self.config.get("fusion_method", "weighted")
-        stage1_weight = float(self.config.get("stage1_weight", 0.3))
-        stage2_weight = float(self.config.get("stage2_weight", 0.7))
+        # Default safer weights (0.6/0.4) unless config overrides were provided
+        stage1_weight = float(self.config.get('stage1_weight', 0.6))
+        stage2_weight = float(self.config.get('stage2_weight', 0.4))
+        fusion_method = self.config.get('fusion_method', 'weighted')
         
-        if correlation < -0.2:
-            print(f"Warning: Stage-2 scores seem inverted (correlation={correlation:.3f})")
-            # Flip Stage-2: if it's a probability in [0,1], flipping is 1 - p
-            blip2_for_fusion = 1.0 - blip2_for_fusion
-            # Recompute correlation (optional)
-            if len(clip_raw) > 3:
-                correlation = np.corrcoef(clip_for_fusion, blip2_for_fusion)[0, 1]
-            # Be conservative: either reduce Stage-2 weight or fall back to rank fusion
-            if fusion_method == "weighted":
-                stage1_weight, stage2_weight = 0.6, 0.4
-                print(f"Corrected: flipped Stage-2, reduced weight to {stage2_weight:.1f}")
+        # Gate on agreement quality
+        if correlation < NEGATIVE:
+            # True inversion → flip Stage-2 and keep conservative weights
+            if stage2_higher:
+                blip2_for_fusion = 1.0 - blip2_for_fusion  # probability flip (p → 1-p)
             else:
-                fusion_method = "rank_fusion"
-                print("Corrected: switching to rank_fusion (orientation-safe)")
+                blip2_for_fusion = -blip2_for_fusion       # score flip
+            print(f"Warning: Stage-2 inverted (rho={correlation:.3f}) → flipped, weights=0.6/0.4")
+            fusion_method = 'weighted'
+            stage1_weight, stage2_weight = 0.6, 0.4
+            
+        elif abs(correlation) < LOW_AGREE:
+            # Weak agreement → prefer rank fusion (orientation-safe)
+            print(f"Note: Stage-1/2 weak agreement (rho={correlation:.3f}) → rank_fusion fallback")
+            fusion_method = 'rank_fusion'
+        else:
+            # Good agreement: use configured fusion method/weights as-is
+            pass
         
         # Apply fusion method
         if fusion_method == 'replace':
@@ -815,9 +823,10 @@ class HybridSearchEngine:
             query_items[item['query_idx']].append(item)
         
         # Apply fusion for each query
-        fusion_method = self.config.get('fusion_method', 'weighted')
-        stage1_weight = float(self.config.get('stage1_weight', 0.3))
-        stage2_weight = float(self.config.get('stage2_weight', 0.7))
+        # Agreement quality thresholds
+        LOW_AGREE = 0.15   # |rho| below this → weak agreement
+        NEGATIVE = -0.20   # rho below this → inversion
+        
         stage2_higher = getattr(self.cross_encoder, "higher_is_better", True)
         
         final_results = []
@@ -838,36 +847,44 @@ class HybridSearchEngine:
             # Orient Stage-1 scores: try both signs and choose the one that best aligns with Stage-2
             clip_raw = clip_scores
             if len(clip_raw) > 3:
-                c1 = np.corrcoef(clip_raw, blip2_for_fusion)[0, 1]
-                c2 = np.corrcoef(-clip_raw, blip2_for_fusion)[0, 1]
-                clip_for_fusion = clip_raw if abs(c1) >= abs(c2) else (-clip_raw)
+                c_pos = np.corrcoef(clip_raw, blip2_for_fusion)[0, 1]
+                c_neg = np.corrcoef(-clip_raw, blip2_for_fusion)[0, 1]
+                clip_for_fusion = clip_raw if abs(c_pos) >= abs(c_neg) else (-clip_raw)
                 correlation = np.corrcoef(clip_for_fusion, blip2_for_fusion)[0, 1]
             else:
                 clip_for_fusion = clip_raw
                 correlation = 0.0
             
-            # Correct inversion when BLIP-2 disagrees strongly with Stage-1
-            current_fusion = fusion_method
-            current_s1_weight = stage1_weight
-            current_s2_weight = stage2_weight
+            # Default safer weights (0.6/0.4) unless config overrides were provided
+            stage1_weight = float(self.config.get('stage1_weight', 0.6))
+            stage2_weight = float(self.config.get('stage2_weight', 0.4))
+            fusion_method = self.config.get('fusion_method', 'weighted')
             
-            if correlation < -0.2:
-                # Flip Stage-2: if it's a probability in [0,1], flipping is 1 - p
-                blip2_for_fusion = 1.0 - blip2_for_fusion
-                # Be conservative: reduce Stage-2 weight or switch to rank fusion
-                if current_fusion == "weighted":
-                    current_s1_weight, current_s2_weight = 0.6, 0.4
+            # Gate on agreement quality
+            if correlation < NEGATIVE:
+                # True inversion → flip Stage-2 and keep conservative weights
+                if stage2_higher:
+                    blip2_for_fusion = 1.0 - blip2_for_fusion  # probability flip (p → 1-p)
                 else:
-                    current_fusion = "rank_fusion"
+                    blip2_for_fusion = -blip2_for_fusion       # score flip
+                fusion_method = 'weighted'
+                stage1_weight, stage2_weight = 0.6, 0.4
+                
+            elif abs(correlation) < LOW_AGREE:
+                # Weak agreement → prefer rank fusion (orientation-safe)
+                fusion_method = 'rank_fusion'
+            else:
+                # Good agreement: use configured fusion method/weights as-is
+                pass
             
             # Compute fused scores based on method
-            if current_fusion == 'weighted':
+            if fusion_method == 'weighted':
                 clip_norm = _normalize(clip_for_fusion)
                 blip_norm = _normalize(blip2_for_fusion)
-                fused_scores = current_s1_weight * clip_norm + current_s2_weight * blip_norm
+                fused_scores = stage1_weight * clip_norm + stage2_weight * blip_norm
                 fused_scores = np.asarray(fused_scores, dtype=np.float32)
                 
-            elif current_fusion == 'rank_fusion':
+            elif fusion_method == 'rank_fusion':
                 clip_rank = np.argsort(np.argsort(-clip_for_fusion))
                 blip_rank = np.argsort(np.argsort(-blip2_for_fusion))
                 k_rrf = 60.0
