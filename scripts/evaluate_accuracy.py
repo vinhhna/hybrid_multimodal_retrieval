@@ -58,7 +58,7 @@ def load_components():
     print("\n[1/4] Loading Flickr30K dataset...")
     dataset = Flickr30KDataset(
         images_dir=str(DATA_DIR / 'images'),
-        annotations_file=str(DATA_DIR / 'results.csv')
+        captions_file=str(DATA_DIR / 'results.csv')
     )
     print(f"  ✓ Loaded {len(dataset)} images")
     
