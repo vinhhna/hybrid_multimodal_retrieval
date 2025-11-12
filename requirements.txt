@@ -56,16 +56,15 @@ salesforce-lavis>=1.0.0  # BLIP-2 for cross-encoder re-ranking (REQUIRED)
 accelerate>=0.20.0       # Optimization for large models
 
 # ----------------------------------------------------------------------------
-# PHASE 4: KNOWLEDGE GRAPH 📋 PLANNED
+# PHASE 4: KNOWLEDGE GRAPH ✅ ACTIVE (Day 3-4)
 # ----------------------------------------------------------------------------
-# Status: Not yet started (planned for Dec 1-21, 2025)
+# Status: In Progress - Implementing PyG containers and serialization (Nov 12, 2025)
 # Purpose: Graph-based context retrieval with PyTorch Geometric
 # ----------------------------------------------------------------------------
 networkx>=3.1           # Graph analysis and visualization (basic, ACTIVE)
-# torch-geometric>=2.3.0  # Graph neural networks
-# torch-scatter>=2.1.0    # Scatter operations for PyG
-# torch-sparse>=2.6.0     # Sparse tensor operations for PyG
-                          # Uncomment when starting Phase 4
+torch-geometric>=2.3.0  # Graph neural networks (REQUIRED for Phase 4)
+torch-scatter>=2.1.0    # Scatter operations for PyG (REQUIRED)
+torch-sparse>=0.6.0     # Sparse tensor operations for PyG (REQUIRED)
 
 # ----------------------------------------------------------------------------
 # PHASE 5: MULTIMODAL GENERATION 📋 PLANNED

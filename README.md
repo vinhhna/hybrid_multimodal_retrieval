@@ -209,10 +209,17 @@ ensure_clip_aligned(normalized, dim=512, check_unit_norm=True)
   - CLIP-space utilities (L2-norm, shape validation, NaN/Inf guards)
   - Configuration system (YAML-based, merged configs)
   - Phase 4 validation script
+- **Phase 4 (Day 3-4)**: PyG containers and serialization! ✅
+  - PyTorch Geometric HeteroData containers
+  - Chunked k-NN semantic edge builder with degree caps
+  - Co-occurrence edge builder (paired & cooccur relations)
+  - Atomic save/load with comprehensive validation
+  - Smoke test script (100-image graph slice)
+  - Test suite: 7 tests, all passing
   
 ### 🚧 What's Next
-- **Phase 4 (Day 3-5)**: Graph construction and beam search
-- **Phase 4 (Week 2)**: Integration and evaluation
+- **Phase 4 (Day 5-6)**: Graph retrieval with multi-hop traversal
+- **Phase 4 (Day 7-10)**: LightRAG integration and evaluation
 - **Phase 5**: Final polish and deployment
 
 ---
@@ -250,8 +257,10 @@ ensure_clip_aligned(normalized, dim=512, check_unit_norm=True)
 **Phase 4 Development?**
 - See `PHASE_4_PLAN.md` for implementation details
 - Graph schema: `src/graph/schema.py`
+- Graph building: `src/graph/build.py`, `src/graph/store.py`
 - CLIP utilities: `src/encoders/clip_space.py`
 - Configuration: `configs/graph_config.yaml`
+- Day 3-4 docs: `docs/PHASE4_DAY3_4_*.md`
 
 **Still stuck?**
 - Open an issue on GitHub
