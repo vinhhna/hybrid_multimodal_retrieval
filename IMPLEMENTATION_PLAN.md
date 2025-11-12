@@ -1,315 +1,273 @@
-# Project Roadmap - What We're Building
+# Phase 4 Implementation Plan — Knowledge Graph (LightRAG-Multimodal)
 
-Simple guide to what we're building and when! 🗺️
-
----
-
-## 🎯 The Big Picture
-
-We're building a smart image search system in 5 phases over 4 months.
-
-**Think of it like:**
-- Phase 1: Setting up the workshop ✅
-- Phase 2: Building a fast car ✅
-- Phase 3: Adding a turbo engine 🚧
-- Phase 4: Adding GPS navigation 📋
-- Phase 5: Final polish and road test 📋
+**Timeline:** 3 weeks (21 days)  
+**Goal:** Build and integrate a multimodal knowledge graph that augments retrieval with LightRAG-style guided expansion and provides structured context for Phase 5.
 
 ---
 
-## 📅 Timeline
+## 8. Implementation Steps & Timeline (1–3 weeks)
 
+### Week 1 — Design, Scaffolding, and Minimal Graph Builder
+
+#### Day 1–2: Finalize schema & configs (minimal multimodal: image, caption)
+
+**Define node/edge types (minimal):**
+* **Nodes:** 
+  * Image, Caption (Region kept as a stub only; not implemented this phase)
+* **Edges:**
+  * **Semantic:** top-k_sem neighbors by cosine (image↔image, caption↔caption)
+  * **Co-occurrence:** caption↔image (paired in dataset), caption↔caption (same image)
+
+**CLIP-space alignment:**
+* Ensure all nodes carry CLIP embeddings:
+  * **Image:** CLIP image embedding (L2-normalized)
+  * **Caption:** CLIP text embedding (L2-normalized)
+
+**Config keys (centralized dict):**
+```yaml
+graph:
+  k_sem: 16
+  degree_cap: 16
+  edge_dtype: fp16
+
+retriever:
+  K_seed: 10
+  B: 20              # beam size
+  H: 2               # max hops
+  decay: 0.85
+  N_max: 200         # max collected nodes
+  T_cap_ms: 150      # time cap in milliseconds
+  eps_gain: 1e-3     # marginal gain threshold
+
+fusion:
+  default: "rank_fusion"
+  weighted_w:
+    w1: 0.7          # CLIP weight
+    w2: 0.2          # Stage-2 weight (when strong agreement)
+    w3: 0.1          # KG weight
+
+enrichment:
+  enabled: true
+  top_terms: 5
 ```
-Oct 2025   Nov 2025   Dec 2025   Jan 2026   Feb 2026
-├─ Phase1  ├─ Phase2  ├─ Phase3  ├─ Phase4  ├─ Phase5
-✅ Done    ✅ Done    🚧 Next    📋 Later   📋 Later
-```
 
-**Current Status:** 40% complete (2/5 phases done, 23 days ahead of schedule!) 🚀
+**Acceptance:**
+* A single config object is readable from code; printing it shows all defaults and any overrides.
 
 ---
 
-## Phase 1: Getting Started ✅
+#### Day 3–4: Implement PyG containers and serialization utilities
 
-**Dates:** October 13-26, 2025  
-**Status:** ✅ Complete
+**Data containers:**
+* Use PyG `HeteroData` or two `Data` objects (one per type) with explicit cross-links:
+  * `HeteroData.x_dict`: `{"image": Tensor[N_img, d], "caption": Tensor[N_cap, d]}`
+  * `HeteroData.edge_index_dict`:
+    * `("image", "sem_sim", "image")`: edge_index_ii, edge_weight_ii
+    * `("caption", "sem_sim", "caption")`: edge_index_cc, edge_weight_cc
+    * `("caption", "paired_with", "image")`: edge_index_ci (weight=1.0)
+    * `("caption", "cooccur", "caption")`: edge_index_cc_co (optional; weight=1.0)
+  * Maintain maps:
+    * `nid_maps`: `{("image", image_id) → node_idx, ("caption", caption_id) → node_idx}`
+    * `id_maps`: reverse maps for result decoding
 
-### What We Did
-- Set up the project
-- Downloaded 31,783 images
-- Installed Python and tools
-- Explored the data
+**Builders:**
+* `build_semantic_edges(type, X, k_sem, degree_cap)`: chunked approximate k-NN over L2-normalized CLIP features; returns `(edge_index, edge_weight in fp16)`
+* `build_cooccurrence_edges(dataset)`: construct caption↔image, caption↔caption (same image)
 
-### Deliverables
-- ✅ Project files and folders
-- ✅ Complete dataset (Flickr30K)
-- ✅ Python environment ready
-- ✅ Exploration notebook
+**Serialization:**
+* `save_graph(hetero, path_dir)`: saves tensors to `path_dir/{x_*.pt, eidx_*.pt, w_*.pt, maps.json}`
+* `load_graph(path_dir)`: loads tensors & maps; validates shapes and dtypes
 
-**Time:** 2 weeks  
-**Result:** Ready to build! 
-
----
-
-## Phase 2: Fast Search Engine ✅
-
-**Dates:** October 27 - November 16, 2025  
-**Actually Done:** October 24, 2025 (23 days early!) 🚀  
-**Status:** ✅ Complete
-
-### What We Did
-Built a working image search system that's super fast!
-
-**Week 1: AI Setup**
-- ✅ Set up CLIP AI model
-- ✅ Turned all images into "embeddings" (AI numbers)
-- ✅ Turned all captions into embeddings
-- ✅ Saved everything to disk
-
-**Week 2: Fast Search**
-- ✅ Built FAISS search database
-- ✅ Made it lightning fast (11ms per search!)
-- ✅ Saved indices for later use
-
-**Week 3: Make It Easy to Use**
-- ✅ Text → Images search
-- ✅ Image → Captions search
-- ✅ Image → Similar images search
-- ✅ Batch search (multiple at once)
-- ✅ Demo notebook
-
-### Deliverables
-- ✅ Complete search engine
-- ✅ 3 types of search working
-- ✅ 11ms search speed (target was 100ms!)
-- ✅ Interactive demos
-
-**Time:** Finished in 1 week instead of 3!  
-**Result:** Blazingly fast search! 🔥
+**Acceptance:**
+* Running a tiny slice (e.g., 100 images) produces a saved graph, reloads without errors, and edge degrees are ≤ degree_cap.
 
 ---
 
-## Phase 3: Smarter Search 🚧
+#### Day 5–7: Minimal graph search scaffolding & enrichment interface
 
-**Dates:** November 17-30, 2025  
-**Status:** 🚧 Coming Next
+**Encode query:**
+* `encode_query(q)`: returns CLIP embedding (text or image path input), L2-normalized
 
-### What We'll Do
-Make the search even more accurate using a second AI model.
+**Seed selection (shared CLIP space):**
+* `seed_nodes(emb, K_seed)`: ANN over {image, caption} feature stores (FAISS or in-memory index for the prototype); returns seed lists with scores
+* Always include paired captions for any seeded images
 
-**Week 1: Add BLIP-2 AI (Nov 17-23)**
-- [ ] Install BLIP-2 model
-- [ ] Test it with sample images
-- [ ] Make it score how good matches are
-- [ ] Optimize for speed
+**Enrichment (toggleable):**
+* `enrich_query(q, seeds, graph, top_terms=5)`: collect top captions adjacent to seeds (by semantic/co-occurrence) → tokenize → select top n-grams unigram/bigram by tf-idf or frequency → join into "enriched query" string
+* If disabled, return original query
 
-**Week 2: Hybrid Search (Nov 24-30)**
-- [ ] Combine CLIP (fast) + BLIP-2 (accurate)
-- [ ] First: CLIP finds 100 candidates (fast)
-- [ ] Then: BLIP-2 picks best 10 (accurate)
-- [ ] Test and compare results
-
-### Deliverables
-- [ ] Working BLIP-2 model
-- [ ] Hybrid search (two-stage)
-- [ ] Better accuracy (+15-20%)
-- [ ] Demo notebook
-
-**Time:** 2 weeks  
-**Goal:** Better search results!
+**Acceptance:**
+* Unit tests on 5 synthetic queries verify seed selection returns K_seed items, enrichment returns a non-empty string (when enabled), and runtime < 5 ms/query (excluding ANN build).
 
 ---
 
-## Phase 4: Knowledge Graph 📋
+### Week 2 — Full Graph Build & Guided Retrieval (Shallow Multi-hop)
 
-**Dates:** December 1-21, 2025  
-**Status:** 📋 Planned
+#### Day 8–9: Batch-build full graph (Flickr30K)
 
-### What We'll Do
-Connect related images and captions to understand context better.
+**Chunked k-NN:**
+* Process captions and images separately in chunks (e.g., 8k vectors/chunk) to build semantic edges; keep top-k_sem and enforce degree caps
 
-**Week 1: Design (Dec 1-7)**
-- [ ] Plan the graph structure
-- [ ] Figure out how to connect images
-- [ ] Test with small sample
+**Co-occurrence edges:**
+* Add caption↔image edges from dataset pairs; add caption↔caption edges for captions belonging to the same image (optional)
 
-**Week 2: Build (Dec 8-14)**
-- [ ] Create the knowledge graph
-- [ ] Connect all images and captions
-- [ ] Add similarity connections
-- [ ] Optimize and save
+**Save artifacts:**
+* `data/graph/x_image.pt`, `x_caption.pt`, `eidx_image_sem.pt`, `w_image_sem.pt`, `eidx_caption_sem.pt`, `w_caption_sem.pt`, `eidx_caption_image_paired.pt`, `maps.json`
 
-**Week 3: Use It (Dec 15-21)**
-- [ ] Make graph search work
-- [ ] Get related images (context)
-- [ ] Test and compare
-- [ ] Create demos
-
-### Deliverables
-- [ ] Complete knowledge graph
-- [ ] Graph-based search
-- [ ] Context-aware results
-- [ ] Visualizations
-
-**Time:** 3 weeks  
-**Goal:** Smarter understanding of relationships!
+**Acceptance:**
+* Build time logged; memory footprint recorded; spot-check degree distributions; reload test passes.
 
 ---
 
-## Phase 5: Final Polish 📋
+#### Day 10–11: Implement guided expansion (LightRAG-style)
 
-**Dates:** December 22, 2025 - February 8, 2026  
-**Status:** 📋 Planned
+**Frontier & beam:**
+* Data structure: a min-heap or priority queue keyed by `score(node)`; maintain visited sets per node type
+* **Score update:**
+  * Initialize seeds with score=1.0 (or normalized CLIP similarity)
+  * For edge (u→v), `score_v_candidate = score_u × (decay^hop) × (edge_weight × type_weight)`
+    * `type_weight`: sem=1.0, cooc=0.7
 
-### What We'll Do
-Put everything together and write the final thesis.
+**Multi-hop:**
+* For hop in 1..H:
+  * For each node in current beam (size B), expand up to its top `expansion_cap` neighbors (e.g., ≤ degree_cap)
+  * Add/update scores for neighbors; if already visited, keep the max score
+* Maintain collected set; stop if `|collected| ≥ N_max` or `elapsed > T_cap_ms`
 
-**Weeks 1-2: Add AI Explanations (Dec 22 - Jan 4)**
-- [ ] Install LLaVA or Qwen-VL
-- [ ] Make it explain search results
-- [ ] Generate descriptions
-- [ ] Test complete system
+**Candidate extraction:**
+* Collect image nodes from visited/collected; compute a "graph score" per image = max score encountered for that image (or aggregate by sum/max)
 
-**Weeks 3-4: Evaluate Everything (Jan 5-18)**
-- [ ] Measure accuracy
-- [ ] Test all features
-- [ ] Compare with other systems
-- [ ] Collect examples
-
-**Weeks 5-6: Write Thesis (Jan 19 - Feb 1)**
-- [ ] Write all chapters
-- [ ] Create figures and charts
-- [ ] Format references
-- [ ] Proofread
-
-**Week 7: Present (Feb 2-8)**
-- [ ] Create slides
-- [ ] Make demo video
-- [ ] Practice presentation
-- [ ] Submit and present!
-
-### Deliverables
-- [ ] Complete system
-- [ ] Full evaluation
-- [ ] Thesis document
-- [ ] Presentation
-- [ ] Demo video
-
-**Time:** 7 weeks  
-**Goal:** Ship it! 🚢
+**Acceptance:**
+* On 25-query smoke set, expansion completes under T_cap_ms with `|collected| ≤ N_max`; returns a non-empty candidate list per query.
 
 ---
 
-## 🎯 Success Criteria
+#### Day 12: KG-based re-ranking + fusion plumbing
 
-### Minimum (Must Have)
-- ✅ Fast search working
-- [ ] Accurate results (>50% Recall@10)
-- [ ] Search under 3 seconds
-- [ ] Complete documentation
+**KG score:**
+* **Option A (fast):** shortest-path approximation via hop count from seeds (if edge_index is unweighted for sem/cooc); `kg_score = 1 / (1 + min_hops)`
+* **Option B (richer):** approximate personalized PageRank (few power iterations over the subgraph only); kg_score in [0,1]
 
-### Target (Should Have)
-- [ ] Hybrid search with BLIP-2
-- [ ] Knowledge graph working
-- [ ] Accuracy >65% Recall@10
-- [ ] Search under 2 seconds
+**Normalize & combine:**
+* `clip_norm`: min-max over candidate list (avoid div-by-zero)
+* (Optional) `stage2_norm`: only if Stage-2 is enabled and correlation with CLIP is strong; otherwise skip
+* `kg_norm`: min-max normalized
+* `final_score = w1*clip_norm + w2*stage2_norm + w3*kg_norm`, defaults w1=0.7, w2=0.0/0.2, w3=0.1
+* **Fallback:** if `|ρ(clip, stage2)| < 0.15` → `rank_fusion(clip_rank, kg_rank[, stage2_rank])` using RRF
 
-### Stretch (Nice to Have)
-- [ ] AI explanations working
-- [ ] Web demo
-- [ ] Published paper
+**Acceptance:**
+* Deterministic ranking for fixed seed/random seeds; tests confirm `final_score` monotonic with each component when others are constant.
 
 ---
 
-## 📊 Progress Tracker
+#### Day 13–14: Integrate Query Contextualization and add Graph mode to evaluator
 
-| What | Status | Notes |
-|------|--------|-------|
-| Phase 1 | ✅ 100% | Done on time |
-| Phase 2 | ✅ 100% | Done 23 days early! |
-| Phase 3 | 🚧 0% | Starting soon |
-| Phase 4 | 📋 0% | Planned |
-| Phase 5 | 📋 0% | Planned |
-| **Overall** | **40%** | **Ahead of schedule!** |
+**Enrichment integration:**
+* If `enrichment.enabled`, call `enrich_query()` once before CLIP seeding; re-encode enriched text; proceed with seed selection
 
----
+**Evaluator additions:**
+* Add mode "Graph-augmented":
+  * Step 1: (optional) enrich → encode → seed
+  * Step 2: guided expansion (B, H, decay, caps)
+  * Step 3: candidate finalization + re-ranking
+  * Output: ranked image IDs
+* Metrics: Recall@1/5/10, MRR, nDCG@10; latency mean/median; signed deltas vs CLIP-only
 
-## 🛠️ What We're Using
-
-**AI Models:**
-- CLIP - Fast image/text understanding (Phase 2) ✅
-- BLIP-2 - Accurate matching (Phase 3) 🚧
-- LLaVA/Qwen-VL - AI explanations (Phase 5) 📋
-
-**Tools:**
-- Python - Programming language ✅
-- PyTorch - AI framework ✅
-- FAISS - Fast search ✅
-- PyTorch Geometric - Graphs (Phase 4) 📋
-
-**Data:**
-- 31,783 images from Flickr30K ✅
-- 158,914 captions ✅
+**Acceptance:**
+* On 25-query smoke test: Graph mode runs end-to-end; logs include seed size, hops, collected nodes, and time breakdowns (seed/expansion/rerank).
 
 ---
 
-## 🆘 What Could Go Wrong?
+### Week 3 — Hardening, Tuning, and Reporting
 
-**Problem:** GPU runs out of memory  
-**Solution:** Use smaller batch sizes, optimize code
+#### Day 15–16: Latency & agreement guardrails; ablations
 
-**Problem:** Models take too long to run  
-**Solution:** Use faster models, cloud GPUs
+**Guardrails:**
+* Early exit: if `elapsed > T_cap_ms` at any step → return CLIP ranking
+* Stage-2 gating (if used): skip Stage-2 when `|ρ(clip, stage2)| < 0.05`; use rank_fusion when `|ρ| < 0.15`
 
-**Problem:** Results not accurate enough  
-**Solution:** Fine-tune models, try different approaches
+**Ablations (25-query set):**
+* Enrichment ON/OFF; KG re-rank ON/OFF; B∈{10,20}, H∈{1,2}, K_seed∈{5,10,15}; decay∈{0.8,0.85,0.9}; w3∈{0.05,0.1,0.2}
 
-**We've planned for problems and have backup plans!** 💪
-
----
-
-## 🎓 Learning Goals
-
-What we're learning from this project:
-- How AI understands images and text
-- How to build fast search systems
-- How to work with big datasets
-- How to evaluate AI systems
-- How to write academic papers
+**Acceptance:**
+* Record a table (or JSON) of metrics and latency for each toggle; pick a default that meets success criteria (no Recall@10 drop, R@1/MRR ≥ Hybrid, Δlatency ≤ +250 ms over CLIP-only median).
 
 ---
 
-## 📚 Key Papers We're Following
+#### Day 17: Robustness & edge cases
 
-1. **CLIP** - How AI learns from images and text
-2. **BLIP-2** - Better image-text understanding
-3. **FAISS** - Fast similarity search
-4. **LightRAG** - Knowledge graph retrieval
+**Determinism:** 
+* Fix seeds with FAST_SEED for smoke tests; ensure numpy/pytorch RNG seeding where applicable
 
-**Don't worry, you don't need to read these!** We're applying the ideas.
+**Empty/short captions:** 
+* Enrichment should degrade gracefully
 
----
+**Disconnected components:** 
+* If seeds land in sparse regions, fallback maintains CLIP ranking
 
-## 🎉 Milestones
+**Memory checks:** 
+* Verify degree caps; ensure edge tensors are fp16 where safe
 
-- ✅ **Oct 20:** Project started!
-- ✅ **Oct 24:** Search engine working!
-- 🎯 **Nov 30:** Hybrid search complete
-- 🎯 **Dec 21:** Knowledge graph done
-- 🎯 **Feb 8:** Project complete and presented!
+**Acceptance:**
+* All tests pass; no crashes on missing neighbors; memory within budget.
 
 ---
 
-## 📞 Questions?
+#### Day 18–19: Context synthesizer stub & example payloads
 
-- Check the code in `src/`
-- Try the notebooks in `notebooks/`
-- Read `README.md` for quick start
-- Open an issue on GitHub
+**`synthesize_context(query, results, graph, cfg)`:**
+* **texts:** gather top captions for the top-N images (truncate to ~120 chars)
+* **image_refs:** absolute file paths or base64 URIs (configurable; default paths)
+* **metadata:** image_ids, caption_ids (top hits), edges_summary (counts per edge type in subgraph)
+
+**Save 2–3 example payloads for qualitative inspection**
+
+**Acceptance:**
+* JSON payloads validate; evaluator prints a short summary snippet per mode.
 
 ---
 
-**Last Updated:** October 24, 2025  
-**Next Milestone:** Phase 3 (Hybrid Search) - November 30, 2025
+#### Day 20–21: Final evaluation run & short report
 
-**Let's build something cool!** 🚀
+**Run the 25-query smoke test across:**
+* CLIP-only, Hybrid (fixed), Graph (no enrichment), Graph (+enrichment)
+
+**Report (short, structured notes or JSON):**
+* Metrics per mode; Δ vs CLIP-only; latency budget adherence
+* What helped most (e.g., KG re-rank + enrichment + B=20, H=2)
+* Defaults to use going forward (cfg snapshot)
+
+**Acceptance:**
+* Graph mode meets success criteria or is clearly justified with trade-offs and next steps (e.g., keep KG re-rank on; keep enrichment off by default if it adds latency with negligible gain).
+
+---
+
+## Deliverables Checklist
+
+### Design & Scaffolding (Week 1)
+- [ ] Node types: image, caption (region stub optional)
+- [ ] Edge types: semantic, co-occurrence
+- [ ] Config system with all parameters
+- [ ] PyG containers implemented
+- [ ] Serialization/deserialization working
+- [ ] Enrichment interface implemented
+
+### Graph Build & Retrieval (Week 2)
+- [ ] Graph serialization/load working on full dataset
+- [ ] Degree-capped semantic & co-occurrence edges
+- [ ] Seed selection implemented
+- [ ] Enrichment (toggle) working
+- [ ] Guided expansion (H≤2, B=20) implemented
+- [ ] KG re-rank implemented
+
+### Evaluation & Context (Week 3)
+- [ ] Evaluator supports Graph mode
+- [ ] Metrics & latency logged
+- [ ] Ablation results for key knobs
+- [ ] Context stub produces `{texts, image_refs, metadata}`
+- [ ] Sample payloads saved (2-3 examples)
+- [ ] Final defaults chosen and recorded (config)
+
+---
+
+**Ready to implement!** This detailed day-by-day plan ensures steady progress toward a working knowledge graph retrieval system with proper evaluation and context preparation for Phase 5.
