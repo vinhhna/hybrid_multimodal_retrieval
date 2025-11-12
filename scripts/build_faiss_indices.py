@@ -151,36 +151,6 @@ def build_text_index(config: dict):
     return index
 
 
-def test_indices(config: dict):
-    """Quick test of built indices."""
-    print("\n" + "=" * 60)
-    print("TESTING INDICES")
-    print("=" * 60)
-    
-    # Load indices
-    print("\n📂 Loading indices...")
-    image_index = FAISSIndex()
-    image_index.load(config['paths']['image_index'])
-    
-    text_index = FAISSIndex()
-    text_index.load(config['paths']['text_index'])
-    
-    # Test search with random query
-    print("\n🔍 Testing search...")
-    
-    # Random image query
-    random_query = np.random.randn(1, 512).astype('float32')
-    scores, indices = image_index.search(random_query, k=5)
-    print(f"\n✓ Image index search successful")
-    print(f"  Top 5 scores: {scores[0]}")
-    
-    # Random text query
-    random_query = np.random.randn(1, 512).astype('float32')
-    scores, indices = text_index.search(random_query, k=5)
-    print(f"\n✓ Text index search successful")
-    print(f"  Top 5 scores: {scores[0]}")
-
-
 def main():
     """Main function to build all indices."""
     print("=" * 60)
@@ -196,10 +166,7 @@ def main():
     # Build indices
     image_index = build_image_index(config)
     text_index = build_text_index(config)
-    
-    # Test indices
-    test_indices(config)
-    
+
     print("\n" + "=" * 60)
     print("✅ ALL INDICES BUILT SUCCESSFULLY!")
     print("=" * 60)

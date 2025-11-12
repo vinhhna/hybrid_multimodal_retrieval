@@ -23,7 +23,8 @@
   * **Image:** CLIP image embedding (L2-normalized)
   * **Caption:** CLIP text embedding (L2-normalized)
 
-**Config keys (centralized dict):**
+**Config file (centralized YAML):**
+Store these keys and defaults in `configs/phase4_graph.yaml` (or merged into `configs/default.yaml`).
 ```yaml
 graph:
   k_sem: 16
@@ -52,7 +53,7 @@ enrichment:
 ```
 
 **Acceptance:**
-* A single config object is readable from code; printing it shows all defaults and any overrides.
+* The YAML config loads successfully through the existing loader; printing it (or converting to dict) shows all defaults and any runtime overrides applied.
 
 ---
 
@@ -247,7 +248,7 @@ enrichment:
 ### Design & Scaffolding (Week 1)
 - [ ] Node types: image, caption (region stub optional)
 - [ ] Edge types: semantic, co-occurrence
-- [ ] Config system with all parameters
+- [ ] Config YAML (`configs/phase4_graph.yaml`) created with all parameters
 - [ ] PyG containers implemented
 - [ ] Serialization/deserialization working
 - [ ] Enrichment interface implemented
@@ -266,7 +267,7 @@ enrichment:
 - [ ] Ablation results for key knobs
 - [ ] Context stub produces `{texts, image_refs, metadata}`
 - [ ] Sample payloads saved (2-3 examples)
-- [ ] Final defaults chosen and recorded (config)
+- [ ] Final defaults chosen and recorded in YAML configs
 
 ---
 

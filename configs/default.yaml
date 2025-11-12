@@ -2,9 +2,9 @@
 
 # Data paths
 data:
-  data_dir: "data"
-  images_dir: "data/images"
-  captions_file: "data/results.csv"
+  data_dir: "/kaggle/input/flickr30k/data"
+  images_dir: "/kaggle/input/flickr30k/data/images"
+  captions_file: "/kaggle/input/flickr30k/data/results.csv"
 
 # Dataset parameters
 dataset:

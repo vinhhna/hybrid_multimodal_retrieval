@@ -68,14 +68,26 @@ print(f"Found {len(results)} images!")
 
 ```
 hybrid_multimodal_retrieval/
-├── data/                    # Your images and search indices
-├── src/                     # The smart code that makes it work
-├── notebooks/               # Interactive demos you can play with
-├── scripts/                 # Helper scripts
-└── configs/                 # Settings and configurations
+├── configs/                 # YAML configuration files
+│   ├── graph_config.yaml   # Phase 4 graph retrieval settings
+│   ├── clip_config.yaml    # CLIP model configuration
+│   ├── faiss_config.yaml   # FAISS index settings
+│   └── blip2_config.yaml   # BLIP-2 model configuration
+├── data/                    # Dataset and generated files
+│   ├── images/             # Flickr30K image files
+│   ├── embeddings/         # Pre-computed CLIP embeddings
+│   └── indices/            # FAISS search indices
+├── src/                     # Core source code
+│   ├── encoders/           # CLIP-space utilities (Phase 4)
+│   ├── flickr30k/          # Dataset handling
+│   ├── graph/              # Graph schema (Phase 4)
+│   └── retrieval/          # Search engines and indexing
+├── notebooks/               # Interactive Jupyter demos
+├── scripts/                 # Utility scripts
+└── tests/                   # Test files
 ```
 
-**Don't worry about the details!** Check out the notebooks in `notebooks/` for easy examples.
+**Start here:** Check out the notebooks in `notebooks/` for interactive examples!
 
 ---
 
@@ -153,6 +165,32 @@ for query, results in batch_results.items():
         print(f"  • {img_id}")
 ```
 
+### Example 6: Phase 4 Graph Utilities
+
+```python
+from src.graph.schema import NodeType, EdgeType, ImageNodeMeta, CaptionNodeMeta
+from src.encoders.clip_space import l2_normalize, ensure_clip_aligned
+
+# Define graph nodes
+img_node = ImageNodeMeta(
+    image_id="img_001",
+    path="data/images/photo.jpg",
+    size=(640, 480)
+)
+
+cap_node = CaptionNodeMeta(
+    caption_id="cap_001",
+    image_id="img_001",
+    text="A beautiful sunset over the ocean"
+)
+
+# CLIP-space utilities
+import numpy as np
+embeddings = np.random.rand(10, 512).astype(np.float32)
+normalized = l2_normalize(embeddings)  # L2-normalize with NaN/Inf guards
+ensure_clip_aligned(normalized, dim=512, check_unit_norm=True)
+```
+
 ---
 
 ## 🎓 Project Progress
@@ -161,16 +199,21 @@ for query, results in batch_results.items():
 - **Phase 1**: Project setup ✅
 - **Phase 2**: Fast search system working! ✅  
   - Can search 31,000 images in 11 milliseconds!
-- **Phase 3 Week 2**: Hybrid Search Pipeline! ✅  
+- **Phase 3**: Hybrid Search Pipeline! ✅  
   - Two-stage search: CLIP + BLIP-2 re-ranking
   - Batch processing (2-6x faster)
   - Accuracy: ~65-70% Recall@10
   - Speed: <2000ms end-to-end
+- **Phase 4 (Day 1-2)**: Graph-based retrieval foundation! ✅
+  - Schema definitions (NodeType, EdgeType, metadata)
+  - CLIP-space utilities (L2-norm, shape validation, NaN/Inf guards)
+  - Configuration system (YAML-based, merged configs)
+  - Phase 4 validation script
   
 ### 🚧 What's Next
-- **Phase 3 Week 3**: Knowledge-enhanced retrieval
-- **Phase 4**: Adding knowledge graphs (Dec 2025)
-- **Phase 5**: Final polish (Jan-Feb 2026)
+- **Phase 4 (Day 3-5)**: Graph construction and beam search
+- **Phase 4 (Week 2)**: Integration and evaluation
+- **Phase 5**: Final polish and deployment
 
 ---
 
@@ -197,11 +240,18 @@ for query, results in batch_results.items():
 **New to this?**
 - Start with `notebooks/05_search_demo.ipynb` - it's interactive and easy!
 - Check out `KAGGLE_SETUP.md` if running on Kaggle
+- Read `scripts/README.md` for all available utility scripts
 
 **Something not working?**
 - Make sure you downloaded the dataset (Step 2 above)
 - Check that Python 3.9+ is installed
 - Try the notebooks - they have all the examples
+
+**Phase 4 Development?**
+- See `PHASE_4_PLAN.md` for implementation details
+- Graph schema: `src/graph/schema.py`
+- CLIP utilities: `src/encoders/clip_space.py`
+- Configuration: `configs/graph_config.yaml`
 
 **Still stuck?**
 - Open an issue on GitHub
@@ -211,10 +261,11 @@ for query, results in batch_results.items():
 
 ## 📚 More Documentation
 
+- **[scripts/README.md](scripts/README.md)** - Complete guide to all utility scripts
 - **[KAGGLE_SETUP.md](KAGGLE_SETUP.md)** - Running on Kaggle (cloud, free GPU!)
-- **[API_REFERENCE.md](API_REFERENCE.md)** - Detailed code documentation
-- **[CHANGELOG.md](CHANGELOG.md)** - What changed in each version
-- **[IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md)** - Project roadmap
+- **[PHASE_4_PLAN.md](PHASE_4_PLAN.md)** - Graph-based retrieval implementation plan
+- **[IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md)** - Overall project roadmap
+- **[PROMPT_TEMPLATE.md](PROMPT_TEMPLATE.md)** - Development guidelines
 
 ---
 

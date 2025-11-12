@@ -13,13 +13,6 @@ from .faiss_index import FAISSIndex
 from .cross_encoder import CrossEncoder
 from .hybrid_search import HybridSearchEngine
 from .search_engine import MultimodalSearchEngine, SearchResult
-from .config import (
-    HybridSearchConfig,
-    load_config,
-    get_default_config,
-    load_preset,
-    ConfigurationError
-)
 
 __all__ = [
     'BiEncoder',
@@ -27,10 +20,5 @@ __all__ = [
     'CrossEncoder',
     'HybridSearchEngine',
     'MultimodalSearchEngine',
-    'SearchResult',
-    'HybridSearchConfig',
-    'load_config',
-    'get_default_config',
-    'load_preset',
-    'ConfigurationError'
+    'SearchResult'
 ]

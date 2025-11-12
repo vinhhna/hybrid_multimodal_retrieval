@@ -13,12 +13,11 @@ encoding:
   show_progress: true           # Show progress bars
 
 paths:
-  embeddings_dir: 'data/embeddings'
-  image_embeddings: 'data/embeddings/image_embeddings.npy'
-  text_embeddings: 'data/embeddings/text_embeddings.npy'
-  image_metadata: 'data/embeddings/image_metadata.json'
-  text_metadata: 'data/embeddings/text_metadata.json'
-
+  embeddings_dir: '/kaggle/input/flickr30k/data/embeddings'
+  image_embeddings: '/kaggle/input/flickr30k/data/embeddings/image_embeddings.npy'
+  text_embeddings: '/kaggle/input/flickr30k/data/embeddings/text_embeddings.npy'
+  image_metadata: '/kaggle/input/flickr30k/data/embeddings/image_metadata.json'
+  text_metadata: '/kaggle/input/flickr30k/data/embeddings/text_metadata.json'
 dataset:
-  images_dir: 'data/images'
-  captions_file: 'data/results.csv'
+  images_dir: '/kaggle/input/flickr30k/data/images'
+  captions_file: '/kaggle/input/flickr30k/data/results.csv'

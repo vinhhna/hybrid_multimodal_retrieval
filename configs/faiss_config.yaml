@@ -31,10 +31,10 @@ hnsw:
 
 # Paths
 paths:
-  image_index: 'data/indices/image_index.faiss'
-  text_index: 'data/indices/text_index.faiss'
-  image_index_metadata: 'data/indices/image_index.json'
-  text_index_metadata: 'data/indices/text_index.json'
+  image_index: '/kaggle/input/flickr30k/data/indices/image_index.faiss'
+  text_index: '/kaggle/input/flickr30k/data/indices/text_index.faiss'
+  image_index_metadata: '/kaggle/input/flickr30k/data/indices/image_index.json'
+  text_index_metadata: '/kaggle/input/flickr30k/data/indices/text_index.json'
 
 # Search parameters
 search:
