@@ -10,6 +10,9 @@ import torch
 from torch import Tensor
 from torch_geometric.data import HeteroData
 
+# Import shared l2_normalize utility from encoders module
+from encoders.clip_space import l2_normalize
+
 # === PHASE4: GRAPH DEFAULTS ===
 GRAPH_DEFAULTS = {
     "k_sem": 16,
@@ -17,24 +20,6 @@ GRAPH_DEFAULTS = {
     "edge_dtype": "fp16",
     "vector_dim": 512
 }
-
-
-# === PHASE4: L2NORM ===
-def l2_normalize(X: np.ndarray, eps: float = 1e-12) -> np.ndarray:
-    """
-    Return row-wise L2-normalized float32 copy of X with shape (N, D).
-    
-    Args:
-        X: Input array of shape (N, D)
-        eps: Small epsilon to avoid division by zero
-        
-    Returns:
-        L2-normalized array of shape (N, D) as float32
-    """
-    X = X.astype(np.float32, copy=False)
-    norms = np.sqrt((X * X).sum(axis=1, keepdims=True))
-    norms = np.maximum(norms, eps)
-    return X / norms
 
 
 # === PHASE4: SEMANTIC_EDGES ===
