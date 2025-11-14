@@ -1,12 +1,18 @@
+import sys
 import time
 from typing import List
 
 import numpy as np
 import pytest
 import torch
+from pathlib import Path
 from torch_geometric.data import HeteroData
 
-from src.graph.search import Seed, encode_query, seed_nodes, enrich_query
+# Add src to path (mirror pattern from other tests)
+repo_root = Path(__file__).parent.parent
+sys.path.insert(0, str(repo_root / "src"))
+
+from graph.search import Seed, encode_query, seed_nodes, enrich_query
 
 
 # Synthetic config used across tests
