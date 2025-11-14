@@ -16,7 +16,7 @@ import numpy as np
 import torch
 from torch_geometric.data import HeteroData
 
-from src.encoders.clip_space import l2_normalize, to_numpy_f32, assert_clip_shape
+from encoders.clip_space import l2_normalize, to_numpy_f32, assert_clip_shape
 
 
 @dataclass
