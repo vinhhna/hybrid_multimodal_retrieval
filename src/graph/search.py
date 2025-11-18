@@ -79,8 +79,11 @@ def encode_query(
             vec = vec.detach().cpu().numpy()
         emb = to_numpy_f32(vec[0]) if vec.ndim == 2 else to_numpy_f32(vec)
 
+    # Ensure 1D CLIP embedding of shape (512,)
+    emb = emb.reshape(-1)
     assert_clip_shape(emb, dim=512)
 
+    # Defensive renormalization in case upstream encoder changed
     emb = emb.astype(np.float32)
     norm = np.linalg.norm(emb) + 1e-12
     emb = emb / norm
@@ -107,7 +110,15 @@ def _faiss_search(index, q_emb: np.ndarray, k: int):
         return None, None
     if scores is None or ids is None:
         return None, None
-    return scores[0], ids[0]
+
+    scores_1d = scores[0]
+    ids_1d = ids[0]
+
+    # Filter out invalid IDs (e.g., -1 from some FAISS configs)
+    valid_mask = ids_1d >= 0
+    if not np.any(valid_mask):
+        return None, None
+    return scores_1d[valid_mask], ids_1d[valid_mask]
 
 
 def _brute_force_cosine(X: np.ndarray, q_emb: np.ndarray, K_seed: int) -> np.ndarray:
@@ -134,7 +145,7 @@ def seed_nodes(
     caption_index,
     cfg,
 ) -> List[Seed]:
-    """Find top-K_seed nearest neighbors in shared CLIP space.
+    """Find nearest neighbors in shared CLIP space.
 
     Searches over both image and caption embeddings.
     Uses FAISS indices when provided (image_index, caption_index) and
@@ -142,27 +153,27 @@ def seed_nodes(
 
     Paired captions for any seeded images are added *before* the final
     ranking; then the unified list is sorted and truncated so that the
-    final result always has exactly ``K_seed`` items.
+    final result returns up to ``K_seed`` items.
 
     Args:
         q_emb: Query embedding, shape (512,), L2-normalized float32.
-        K_seed: Number of primary seeds to retrieve.
+        K_seed: Target number of seeds to retrieve.
         graph: HeteroData graph containing `image` and `caption` nodes.
         image_index: Optional FAISS index for image embeddings.
         caption_index: Optional FAISS index for caption embeddings.
         cfg: Config object/dict; may contain `FAST_SEED` for determinism.
 
     Returns:
-        List[Seed]: exactly K_seed seeds after ranking. Paired captions for
+        List[Seed]: up to K_seed seeds after ranking. Paired captions for
         seeded images are added before the final ranking; the top-K are kept.
     """
     _maybe_set_seed(cfg)
 
     q_emb = to_numpy_f32(q_emb)
-    assert_clip_shape(q_emb, dim=512)
     if q_emb.ndim != 1:
         q_emb = q_emb.reshape(-1)
-
+    # Defensive: ensure CLIP shape and unit norm even if caller already did it
+    assert_clip_shape(q_emb, dim=512)
     q_emb = q_emb.astype(np.float32)
     norm = np.linalg.norm(q_emb) + 1e-12
     q_emb = q_emb / norm

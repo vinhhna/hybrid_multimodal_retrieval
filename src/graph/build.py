@@ -83,8 +83,9 @@ def build_semantic_edges(
         
         # Compute cosine similarity via dot product on L2-normalized vectors
         S = Q @ X_norm.T  # (q, N) cosine similarity matrix
-        
-        # Exclude self-loops (vectorized for current chunk)
+
+        # Exclude self-loops (vectorized for current chunk). chunk_indices uses
+        # global node indices so each row in this chunk masks its own node.
         chunk_indices = np.arange(start, stop)
         S[np.arange(stop - start), chunk_indices] = -np.inf
         

@@ -249,6 +249,9 @@ def main():
         nid_maps=nid_maps,
         id_maps=id_maps,
     )
+
+    # Attach raw caption texts for downstream enrichment (Phase 4 search)
+    graph["caption"].text = df_tiny["caption"].tolist()
     
     print(f"  ✓ Graph assembled")
     print(f"    Time: {(time.time() - t0)*1000:.1f} ms")

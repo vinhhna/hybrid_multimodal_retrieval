@@ -69,7 +69,7 @@ def assert_clip_shape(
         dim: Expected dimension (default 512 for CLIP ViT-B/32)
     
     Raises:
-        AssertionError: If dimension doesn't match
+        ValueError: If dimension doesn't match
         TypeError: If input is neither numpy array nor torch tensor
     
     Example:
@@ -78,9 +78,11 @@ def assert_clip_shape(
         >>> assert_clip_shape(v, 256)  # AssertionError
     """
     if isinstance(x, np.ndarray):
-        assert x.shape[-1] == dim, f"Expected dim={dim}, got {x.shape[-1]}"
+        if x.shape[-1] != dim:
+            raise ValueError(f"Expected dim={dim}, got {x.shape[-1]}")
     elif torch.is_tensor(x):
-        assert x.size(-1) == dim, f"Expected dim={dim}, got {x.size(-1)}"
+        if x.size(-1) != dim:
+            raise ValueError(f"Expected dim={dim}, got {x.size(-1)}")
     else:
         raise TypeError("Unsupported type for assert_clip_shape")
 
