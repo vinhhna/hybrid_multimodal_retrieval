@@ -4,7 +4,7 @@ Serialization and deserialization utilities for multimodal graphs.
 """
 
 # === PHASE4: STORE HEADER (do not remove) ===
-from typing import Dict
+from typing import Dict, Any, Tuple
 import json
 import os
 import tempfile
@@ -317,3 +317,84 @@ def load_graph(out_dir: str) -> HeteroData:
     print(f"  - Caption nodes: {data['caption'].x.shape[0]}")
     
     return data
+
+
+# === PHASE4: API WRAPPERS FOR SPEC COMPATIBILITY ===
+def save_graph_artifacts(
+    g: HeteroData,
+    maps: Dict[str, Any],
+    out_dir: str
+):
+    """
+    Wrapper for save_graph to match spec API signature.
+    
+    Args:
+        g: HeteroData graph object to save
+        maps: Dictionary with either:
+              - Nested structure: {'nid_maps': {...}, 'id_maps': {...}}
+              - Flat structure: {'image_id_to_idx': {...}, 'idx_to_image_id': {...}, ...}
+        out_dir: Output directory path
+    """
+    # Adapter logic: Check if maps is flat (contains image_id_to_idx) or nested (contains nid_maps)
+    if 'nid_maps' in maps and 'id_maps' in maps:
+        # Already nested structure
+        nid_maps = maps['nid_maps']
+        id_maps = maps['id_maps']
+    elif 'image_id_to_idx' in maps:
+        # Flat structure - need to restructure
+        nid_maps = {
+            'image': maps.get('image_id_to_idx', {}),
+            'caption': maps.get('caption_id_to_idx', {})
+        }
+        id_maps = {
+            'image': maps.get('idx_to_image_id', {}),
+            'caption': maps.get('idx_to_caption_id', {})
+        }
+    else:
+        # Empty or unknown structure
+        nid_maps = {}
+        id_maps = {}
+    
+    # Store maps in graph object for save_graph
+    g['_nid_maps'] = nid_maps
+    g['_id_maps'] = id_maps
+    
+    # Delegate to save_graph
+    save_graph(g, out_dir)
+
+
+def load_graph_artifacts(
+    in_dir: str
+) -> Tuple[HeteroData, Dict[str, Any]]:
+    """
+    Wrapper for load_graph to match spec API signature.
+    
+    Args:
+        in_dir: Directory containing saved graph files
+        
+    Returns:
+        Tuple of (HeteroData object, maps dictionary)
+        Maps dictionary contains both nested and flattened keys:
+        - Nested: 'nid_maps', 'id_maps'
+        - Flattened: 'image_id_to_idx', 'idx_to_image_id', 'caption_id_to_idx', 'idx_to_caption_id'
+    """
+    # Delegate to load_graph
+    g = load_graph(in_dir)
+    
+    # Extract maps from graph
+    nid_maps = getattr(g, '_nid_maps', {})
+    id_maps = getattr(g, '_id_maps', {})
+    
+    # Build maps dictionary with both nested and flattened keys for compatibility
+    maps = {
+        # Nested structure
+        'nid_maps': nid_maps,
+        'id_maps': id_maps,
+        # Flattened keys for backward compatibility
+        'image_id_to_idx': nid_maps.get('image', {}),
+        'caption_id_to_idx': nid_maps.get('caption', {}),
+        'idx_to_image_id': id_maps.get('image', {}),
+        'idx_to_caption_id': id_maps.get('caption', {})
+    }
+    
+    return g, maps

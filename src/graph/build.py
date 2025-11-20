@@ -9,6 +9,15 @@ import numpy as np
 import torch
 from torch import Tensor
 from torch_geometric.data import HeteroData
+from tqdm.auto import tqdm
+
+# Try to import FAISS
+try:
+    import faiss
+    FAISS_AVAILABLE = True
+except ImportError:
+    FAISS_AVAILABLE = False
+    print("[WARNING] FAISS not available. Falling back to numpy-based k-NN (slower).")
 
 # === PHASE4: GRAPH DEFAULTS ===
 GRAPH_DEFAULTS = {
@@ -46,7 +55,7 @@ def build_semantic_edges(
     chunk_size: int = 8192,
 ) -> Tuple[Tensor, Tensor]:
     """
-    Compute chunked k-NN over **L2-normalized** CLIP features using dot-product (cosine).
+    Compute chunked k-NN over **L2-normalized** CLIP features using FAISS IndexFlatIP.
     
     Args:
         node_type: Type of nodes ("image" or "caption")
@@ -60,76 +69,115 @@ def build_semantic_edges(
         edge_weight: HalfTensor [E] with cosine sims in fp16
         
     Note:
-        - Excludes self-loops
+        - Uses FAISS IndexFlatIP for efficient inner-product search (cosine on normalized data)
+        - Excludes self-loops (similarity > 0.9999)
         - Enforces out-degree ≤ degree_cap per source node
         - Uses chunked computation to handle large graphs
-        - Edges within each chunk are deterministically ordered
+        - Shows progress bar for chunked processing
     """
     N, D = X.shape
     
-    # Use node_type for logging
-    _ = node_type  # Acknowledged for linter
-    
-    # Ensure L2-normalized
-    X_norm = l2_normalize(X)
+    # Ensure L2-normalized and float32 (required by FAISS)
+    X_norm = l2_normalize(X).astype(np.float32)
     
     # Storage for edges
-    E_src, E_tgt, W = [], [], []
+    all_src, all_tgt, all_weights = [], [], []
     
-    # Chunked k-NN computation
-    for start in range(0, N, chunk_size):
-        stop = min(start + chunk_size, N)
-        Q = X_norm[start:stop]  # (q, D)
+    if FAISS_AVAILABLE:
+        # Use FAISS for efficient k-NN search
+        # IndexFlatIP computes inner product (cosine similarity on normalized vectors)
+        index = faiss.IndexFlatIP(D)
+        index.add(X_norm)
         
-        # Compute cosine similarity via dot product on L2-normalized vectors
-        S = Q @ X_norm.T  # (q, N) cosine similarity matrix
-
-        # Exclude self-loops (vectorized for current chunk). chunk_indices uses
-        # global node indices so each row in this chunk masks its own node.
-        chunk_indices = np.arange(start, stop)
-        S[np.arange(stop - start), chunk_indices] = -np.inf
+        # Search in chunks with progress bar
+        k_search = min(k_sem + 1, N)  # +1 to include self, then filter
+        num_chunks = (N + chunk_size - 1) // chunk_size
         
-        # Find top-k_sem neighbors
-        # Use argpartition for efficiency (doesn't sort, just partitions)
-        k_actual = min(k_sem, N - 1)  # Can't have more neighbors than nodes-1
-        
-        if k_actual > 0:
-            # Get top-k indices (unsorted) - fix: use k_actual-1 as kth parameter
-            idx = np.argpartition(-S, k_actual - 1, axis=1)[:, :k_actual]
-            part = np.take_along_axis(S, idx, axis=1)
+        desc = f"Building {node_type} semantic edges"
+        for chunk_start in tqdm(range(0, N, chunk_size), desc=desc, total=num_chunks):
+            chunk_end = min(chunk_start + chunk_size, N)
+            query = X_norm[chunk_start:chunk_end]
             
-            # Enforce degree cap (≤ degree_cap)
-            keep_k = min(k_actual, degree_cap)
+            # Search k_search nearest neighbors
+            distances, indices = index.search(query, k_search)
             
-            # Sort to get actual top-k by score
-            topk_idx = np.argsort(-part, axis=1)[:, :keep_k]
-            nbrs = np.take_along_axis(idx, topk_idx, axis=1)
-            sims = np.take_along_axis(part, topk_idx, axis=1)
-            
-            # Build edges for this chunk
-            rows = np.repeat(np.arange(start, stop)[:, None], keep_k, axis=1).ravel()
-            cols = nbrs.ravel()
-            weights = sims.ravel().astype(np.float16)
-            
-            # Apply deterministic ordering: sort by (src asc, weight desc, tgt asc)
-            # Create sort key: primary by src, secondary by -weight, tertiary by tgt
-            sort_idx = np.lexsort((cols, -weights.astype(np.float32), rows))
-            
-            E_src.append(rows[sort_idx])
-            E_tgt.append(cols[sort_idx])
-            W.append(weights[sort_idx])
+            # Process results for this chunk
+            for i in range(len(query)):
+                global_i = chunk_start + i
+                
+                # Filter out self-loops (distance very close to 1.0 for normalized vectors)
+                mask = indices[i] != global_i  # Exclude exact self-match
+                mask &= distances[i] < 0.9999  # Also exclude near-duplicates
+                
+                valid_neighbors = indices[i][mask]
+                valid_distances = distances[i][mask]
+                
+                # Apply degree cap: keep top degree_cap by distance
+                if len(valid_neighbors) > degree_cap:
+                    top_k_idx = np.argsort(-valid_distances)[:degree_cap]
+                    valid_neighbors = valid_neighbors[top_k_idx]
+                    valid_distances = valid_distances[top_k_idx]
+                
+                # Add edges
+                if len(valid_neighbors) > 0:
+                    all_src.extend([global_i] * len(valid_neighbors))
+                    all_tgt.extend(valid_neighbors.tolist())
+                    all_weights.extend(valid_distances.astype(np.float16).tolist())
     
-    # Concatenate all chunks
-    if len(E_src) == 0:
+    else:
+        # Fallback to numpy-based approach (no FAISS)
+        print(f"[{node_type}] Using numpy fallback for k-NN (slower)")
+        
+        num_chunks = (N + chunk_size - 1) // chunk_size
+        desc = f"Building {node_type} semantic edges"
+        
+        for start in tqdm(range(0, N, chunk_size), desc=desc, total=num_chunks):
+            stop = min(start + chunk_size, N)
+            Q = X_norm[start:stop]  # (q, D)
+            
+            # Compute cosine similarity via dot product
+            S = Q @ X_norm.T  # (q, N)
+            
+            # Exclude self-loops
+            chunk_indices = np.arange(start, stop)
+            S[np.arange(stop - start), chunk_indices] = -np.inf
+            
+            # Find top-k_sem neighbors
+            k_actual = min(k_sem, N - 1)
+            
+            if k_actual > 0:
+                # Get top-k indices using argpartition
+                idx = np.argpartition(-S, min(k_actual - 1, S.shape[1] - 1), axis=1)[:, :k_actual]
+                part = np.take_along_axis(S, idx, axis=1)
+                
+                # Apply degree cap
+                keep_k = min(k_actual, degree_cap)
+                
+                # Sort to get actual top-k by score
+                topk_idx = np.argsort(-part, axis=1)[:, :keep_k]
+                nbrs = np.take_along_axis(idx, topk_idx, axis=1)
+                sims = np.take_along_axis(part, topk_idx, axis=1)
+                
+                # Build edges for this chunk
+                rows = np.repeat(np.arange(start, stop)[:, None], keep_k, axis=1).ravel()
+                cols = nbrs.ravel()
+                weights = sims.ravel()
+                
+                all_src.extend(rows.tolist())
+                all_tgt.extend(cols.tolist())
+                all_weights.extend(weights.astype(np.float16).tolist())
+    
+    # Convert to tensors
+    if len(all_src) == 0:
         # Empty graph
         edge_index = torch.zeros((2, 0), dtype=torch.long)
         edge_weight = torch.zeros((0,), dtype=torch.float16)
     else:
         edge_index = torch.tensor(
-            [np.concatenate(E_src), np.concatenate(E_tgt)],
+            [all_src, all_tgt],
             dtype=torch.long
         )
-        edge_weight = torch.tensor(np.concatenate(W), dtype=torch.float16)
+        edge_weight = torch.tensor(all_weights, dtype=torch.float16)
     
     return edge_index, edge_weight
 
@@ -143,7 +191,7 @@ def build_cooccurrence_edges(
     use_caption_caption: bool = True,
 ) -> Dict[str, Tensor]:
     """
-    Construct co-occurrence edges.
+    Construct co-occurrence edges with weight=1.0.
     
     Args:
         caption_ids: Ordered list of caption IDs (defines node indices)
@@ -155,11 +203,13 @@ def build_cooccurrence_edges(
     Returns:
         Dictionary with keys:
             'edge_index_ci': caption->image edges, LongTensor[2, E_ci] (only if image_id_to_idx provided)
-            'edge_index_cc': caption->caption edges, LongTensor[2, E_cc] (only if use_caption_caption=True and pairs exist)
+            'edge_index_cc': caption->caption edges, LongTensor[2, E_cc] (only if use_caption_caption=True)
     
     Note:
-        Returns proper index tensors with dtype=torch.long.
-        Skips captions whose image_id is not in image_id_to_idx (when provided).
+        - All edges have implicit weight=1.0
+        - Returns proper index tensors with dtype=torch.long
+        - Skips captions whose image_id is not in image_id_to_idx (when provided)
+        - Caption-caption edges form cliques for captions sharing the same image
     """
     # Build caption_id to index map
     cap_to_idx = {cap_id: i for i, cap_id in enumerate(caption_ids)}
@@ -171,7 +221,8 @@ def build_cooccurrence_edges(
         src_ci, tgt_ci = [], []
         skipped_count = 0
         
-        for cap_id in caption_ids:
+        print("[Co-occurrence] Building caption-image paired edges...")
+        for cap_id in tqdm(caption_ids, desc="Caption-image pairs"):
             if cap_id in image_ids_for_caption:
                 img_id = image_ids_for_caption[cap_id]
                 if img_id in image_id_to_idx:
@@ -181,7 +232,7 @@ def build_cooccurrence_edges(
                     skipped_count += 1
         
         if skipped_count > 0:
-            print(f"[build_cooccurrence_edges] Warning: skipped {skipped_count} captions with missing image_id in image_id_to_idx")
+            print(f"  Warning: skipped {skipped_count} captions with missing image_id")
         
         # Create edge_index_ci tensor
         if src_ci:
@@ -190,23 +241,30 @@ def build_cooccurrence_edges(
             edge_index_ci = torch.zeros((2, 0), dtype=torch.long)
         
         result['edge_index_ci'] = edge_index_ci
+        print(f"  Built {edge_index_ci.shape[1]} caption-image edges")
     
     # Build caption->caption edges (cooccur relation)
     if use_caption_caption:
         src_cc, tgt_cc = [], []
         
-        for img_id, cap_list in captions_by_image.items():
-            # Connect all caption pairs within same image
-            for i in range(len(cap_list)):
-                for j in range(len(cap_list)):
-                    if i != j and cap_list[i] in cap_to_idx and cap_list[j] in cap_to_idx:
-                        src_cc.append(cap_to_idx[cap_list[i]])
-                        tgt_cc.append(cap_to_idx[cap_list[j]])
+        print("[Co-occurrence] Building caption-caption cooccur edges (clique expansion)...")
+        for img_id, cap_list in tqdm(captions_by_image.items(), desc="Caption-caption cooccur"):
+            # Connect all caption pairs within same image (clique expansion)
+            valid_caps = [c for c in cap_list if c in cap_to_idx]
+            
+            for i in range(len(valid_caps)):
+                for j in range(len(valid_caps)):
+                    if i != j:  # Exclude self-loops
+                        src_cc.append(cap_to_idx[valid_caps[i]])
+                        tgt_cc.append(cap_to_idx[valid_caps[j]])
         
         # Only add edge_index_cc if there are pairs
         if src_cc:
             edge_index_cc = torch.tensor([src_cc, tgt_cc], dtype=torch.long)
             result['edge_index_cc'] = edge_index_cc
+            print(f"  Built {edge_index_cc.shape[1]} caption-caption cooccur edges")
+        else:
+            print("  No caption-caption cooccur edges (images have single captions)")
     
     return result
 

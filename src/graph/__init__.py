@@ -8,7 +8,7 @@ from .build import (
     assemble_hetero_graph,
     GRAPH_DEFAULTS,
 )
-from .store import save_graph, load_graph
+from .store import save_graph, load_graph, save_graph_artifacts, load_graph_artifacts
 
 __all__ = [
     "NodeType",
@@ -22,4 +22,6 @@ __all__ = [
     "GRAPH_DEFAULTS",
     "save_graph",
     "load_graph",
+    "save_graph_artifacts",
+    "load_graph_artifacts",
 ]
