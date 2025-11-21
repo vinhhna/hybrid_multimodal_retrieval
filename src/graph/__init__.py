@@ -1,27 +1,29 @@
-"""Graph schema module for Phase 4."""
+"""
+Graph package for Phase 4 (entity-centric design).
 
-from .schema import NodeType, EdgeType, ImageNodeMeta, CaptionNodeMeta
-from .build import (
-    l2_normalize,
-    build_semantic_edges,
-    build_cooccurrence_edges,
-    assemble_hetero_graph,
-    GRAPH_DEFAULTS,
+This package currently exposes:
+- EntityStats
+- normalize_entity
+- extract_entities_from_caption
+- build_entity_vocabulary
+- save_entity_artifacts
+
+All old Phase 4 graph modules (schema.py, build.py, search.py, store.py, etc.)
+have been removed in the phase4-entity branch.
+"""
+
+from .entities import (
+    EntityStats,
+    normalize_entity,
+    extract_entities_from_caption,
+    build_entity_vocabulary,
+    save_entity_artifacts,
 )
-from .store import save_graph, load_graph, save_graph_artifacts, load_graph_artifacts
 
 __all__ = [
-    "NodeType",
-    "EdgeType",
-    "ImageNodeMeta",
-    "CaptionNodeMeta",
-    "l2_normalize",
-    "build_semantic_edges",
-    "build_cooccurrence_edges",
-    "assemble_hetero_graph",
-    "GRAPH_DEFAULTS",
-    "save_graph",
-    "load_graph",
-    "save_graph_artifacts",
-    "load_graph_artifacts",
+    "EntityStats",
+    "normalize_entity",
+    "extract_entities_from_caption",
+    "build_entity_vocabulary",
+    "save_entity_artifacts",
 ]
