@@ -1,0 +1,25 @@
+# ============================================================================
+# ENTITY GRAPH CONFIGURATION
+# ============================================================================
+# Configuration for Phase 4 entity-centric graph vocabulary building.
+# Used by: scripts/build_entity_vocabulary.py
+# ============================================================================
+
+entity_graph:
+  # Minimum caption document frequency for an entity to be kept
+  # Entities appearing in fewer than min_df captions will be filtered out
+  min_df: 5
+
+  # Optional limit on number of images to process (for debugging).
+  # Use null to process all images in the dataset.
+  # Example: Set to 100 to process only first 100 images for quick testing
+  max_samples: null
+
+  # Output paths for entity artifacts, relative to the project root.
+  # These JSON files contain the vocabulary and context mappings.
+  vocab_path: "data/entities/entity_vocab.json"
+  context_path: "data/entities/entity_context.json"
+
+  # Verbose mode: print progress logs while building the vocabulary
+  # Set to true for detailed logging, false for minimal output
+  verbose: true

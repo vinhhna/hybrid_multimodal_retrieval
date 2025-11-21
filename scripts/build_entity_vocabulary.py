@@ -13,6 +13,7 @@ Usage (from repo root):
 from __future__ import annotations
 
 import sys
+import yaml
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -124,22 +125,26 @@ def main() -> None:
     adapted_dataset = DatasetAdapter(dataset)
     print(f"✓ Adapter ready: {len(adapted_dataset)} images")
     
-    # Configure entity builder
-    cfg = {
-        "entity_graph": {
-            "min_df": 5,
-            "vocab_path": "data/entities/entity_vocab.json",
-            "context_path": "data/entities/entity_context.json",
-            "max_samples": None,  # Set to a small int (e.g., 100) for debugging
-            "verbose": True,
-        }
-    }
+    # Load configuration from YAML
+    config_path = project_root / "config" / "entity_graph.yaml"
+    if not config_path.exists():
+        raise FileNotFoundError(f"Config file not found: {config_path}")
     
-    print(f"\n⚙️  Configuration:")
-    print(f"  min_df: {cfg['entity_graph']['min_df']}")
-    print(f"  max_samples: {cfg['entity_graph']['max_samples']}")
-    print(f"  vocab_path: {cfg['entity_graph']['vocab_path']}")
-    print(f"  context_path: {cfg['entity_graph']['context_path']}")
+    print(f"\n📄 Loading configuration from: {config_path}")
+    with config_path.open("r", encoding="utf-8") as f:
+        cfg = yaml.safe_load(f) or {}
+    
+    if "entity_graph" not in cfg:
+        raise KeyError(
+            f"Config file {config_path} must define an 'entity_graph' section."
+        )
+    
+    entity_cfg = cfg["entity_graph"]
+    print(f"\n⚙️  Configuration (from config/entity_graph.yaml):")
+    print(f"  min_df: {entity_cfg.get('min_df')}")
+    print(f"  max_samples: {entity_cfg.get('max_samples')}")
+    print(f"  vocab_path: {entity_cfg.get('vocab_path')}")
+    print(f"  context_path: {entity_cfg.get('context_path')}")
     
     # Build entity vocabulary
     print(f"\n" + "=" * 70)
