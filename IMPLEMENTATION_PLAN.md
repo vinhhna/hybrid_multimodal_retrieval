@@ -1,274 +1,309 @@
-# Phase 4 Implementation Plan — Knowledge Graph (LightRAG-Multimodal)
+# Phase 4 Implementation Plan — Entity-Centric Knowledge Graph
 
-**Timeline:** 3 weeks (21 days)  
-**Goal:** Build and integrate a multimodal knowledge graph that augments retrieval with LightRAG-style guided expansion and provides structured context for Phase 5.
+**Timeline:** ~3 weeks (21 days)  
+**Goal:** Implement an **entity-centric knowledge graph** with **query enrichment** and **graph expansion** integrated into the existing CLIP/Hybrid retrieval system.
+
+This plan replaces the older image/caption-node design and follows the updated Phase 4 Plan.
 
 ---
 
-## 8. Implementation Steps & Timeline (1–3 weeks)
+## 1. Prereqs & Setup (Day 0)
 
-### Week 1 — Design, Scaffolding, and Minimal Graph Builder
+- Confirm the existing codebase is working:
+  - CLIP-only search
+  - Hybrid (CLIP + BLIP-2) search
+  - Evaluation scripts for R@K and MRR
+- Add new config sections:
+  - `entity_graph`: paths, thresholds (min_df, k_sem, degree_cap, etc.)
+  - `query_enrichment`: K_seed_raw, M_enrich, templates, etc.
+  - `graph_search`: K_seed, H_max, B, T_cap_ms, fusion weights
+- Create module skeletons:
+  - `src/graph/entities.py`
+  - `src/graph/build_entity_graph.py`
+  - `src/graph/graph_search.py`
+  - `src/graph/context.py`
+  - `src/graph/config.py` (optional helpers)
 
-#### Day 1–2: Finalize schema & configs (minimal multimodal: image, caption)
+---
 
-**Define node/edge types (minimal):**
-* **Nodes:** 
-  * Image, Caption (Region kept as a stub only; not implemented this phase)
-* **Edges:**
-  * **Semantic:** top-k_sem neighbors by cosine (image↔image, caption↔caption)
-  * **Co-occurrence:** caption↔image (paired in dataset), caption↔caption (same image)
+## 2. Week 1 — Entity Extraction & Graph Construction
 
-**CLIP-space alignment:**
-* Ensure all nodes carry CLIP embeddings:
-  * **Image:** CLIP image embedding (L2-normalized)
-  * **Caption:** CLIP text embedding (L2-normalized)
+### Day 1–2: Entity vocabulary & context building
 
-**Config file (centralized YAML):**
-Store these keys and defaults in `configs/phase4_graph.yaml` (or merged into `configs/default.yaml`).
-```yaml
-graph:
-  k_sem: 16
-  degree_cap: 16
-  edge_dtype: fp16
+**Tasks:**
 
-retriever:
-  K_seed: 10
-  B: 20              # beam size
-  H: 2               # max hops
-  decay: 0.85
-  N_max: 200         # max collected nodes
-  T_cap_ms: 150      # time cap in milliseconds
-  eps_gain: 1e-3     # marginal gain threshold
+- Implement `build_entity_vocabulary(dataset, cfg)`:
+  - Iterate over all captions.
+  - Run noun-phrase / entity extraction (e.g. via spaCy or a small POS tagger).
+  - Normalize strings (lowercase, strip punctuation, optional lemmatization).
+  - Count frequencies per entity (image-level and corpus-level).
+  - Filter by `min_df` (e.g. ≥ 5) to avoid ultra-rare entities.
 
-fusion:
-  default: "rank_fusion"
-  weighted_w:
-    w1: 0.7          # CLIP weight
-    w2: 0.2          # Stage-2 weight (when strong agreement)
-    w3: 0.1          # KG weight
+- Build context mappings:
+  - `entity_to_images: Dict[entity_name, Set[image_id]]`
+  - `entity_to_captions: Dict[entity_name, Set[caption_id]]`
 
-enrichment:
-  enabled: true
-  top_terms: 5
-```
+**Artifacts:**
+
+- `data/entities/entity_vocab.json` (`entity_name` → stats, IDs)
+- `data/entities/entity_context.json` (`entity_id` → {image_ids, caption_ids})  
 
 **Acceptance:**
-* The YAML config loads successfully through the existing loader; printing it (or converting to dict) shows all defaults and any runtime overrides applied.
+
+- Vocabulary size printed (reasonable number).
+- Sample entries manually inspected for quality.
 
 ---
 
-#### Day 3–4: Implement PyG containers and serialization utilities
+### Day 3–4: Entity embeddings & metadata
 
-**Data containers:**
-* Use PyG `HeteroData` or two `Data` objects (one per type) with explicit cross-links:
-  * `HeteroData.x_dict`: `{"image": Tensor[N_img, d], "caption": Tensor[N_cap, d]}`
-  * `HeteroData.edge_index_dict`:
-    * `("image", "sem_sim", "image")`: edge_index_ii, edge_weight_ii
-    * `("caption", "sem_sim", "caption")`: edge_index_cc, edge_weight_cc
-    * `("caption", "paired_with", "image")`: edge_index_ci (weight=1.0)
-    * `("caption", "cooccur", "caption")`: edge_index_cc_co (optional; weight=1.0)
-  * Maintain maps:
-    * `nid_maps`: `{("image", image_id) → node_idx, ("caption", caption_id) → node_idx}`
-    * `id_maps`: reverse maps for result decoding
+**Tasks:**
 
-**Builders:**
-* `build_semantic_edges(type, X, k_sem, degree_cap)`: chunked approximate k-NN over L2-normalized CLIP features; returns `(edge_index, edge_weight in fp16)`
-* `build_cooccurrence_edges(dataset)`: construct caption↔image, caption↔caption (same image)
-
-**Serialization:**
-* `save_graph(hetero, path_dir)`: saves tensors to `path_dir/{x_*.pt, eidx_*.pt, w_*.pt, maps.json}`
-* `load_graph(path_dir)`: loads tensors & maps; validates shapes and dtypes
+- Assign integer IDs to entities: `entity_name → entity_id`.
+- Encode each entity name with CLIP text encoder:
+  - Optionally use a template like `"a photo of {entity_name}"`.
+  - L2-normalize embeddings.
+- Save:
+  - `entity_embeddings.pt` (tensor `[N_entities, d_model]`)
+  - `entity_meta.json` (`entity_id → {name, df, cf}`)
 
 **Acceptance:**
-* Running a tiny slice (e.g., 100 images) produces a saved graph, reloads without errors, and edge degrees are ≤ degree_cap.
+
+- No NaNs/Infs in embeddings.
+- Basic stats printed: mean norm, distribution checks.
 
 ---
 
-#### Day 5–7: Minimal graph search scaffolding & enrichment interface
+### Day 5–7: Build entity graph (semantic + co-occurrence edges)
 
-**Encode query:**
-* `encode_query(q)`: returns CLIP embedding (text or image path input), L2-normalized
+**Tasks:**
 
-**Seed selection (shared CLIP space):**
-* `seed_nodes(emb, K_seed)`: ANN over {image, caption} feature stores (FAISS or in-memory index for the prototype); returns seed lists with scores
-* Always include paired captions for any seeded images
+- **Semantic edges:**
+  - Use FAISS or batched dot products to compute top-`k_sem` neighbors per entity.
+  - Edge weight = cosine similarity.
+  - Degree-cap to avoid hubs.
 
-**Enrichment (toggleable):**
-* `enrich_query(q, seeds, graph, top_terms=5)`: collect top captions adjacent to seeds (by semantic/co-occurrence) → tokenize → select top n-grams unigram/bigram by tf-idf or frequency → join into "enriched query" string
-* If disabled, return original query
+- **Co-occurrence edges:**
+  - For each image (or caption), get its entities.
+  - For each pair `(e_i, e_j)`:
+    - Add/accumulate a co-occurrence weight.
+  - Normalize weights (optional: PMI or scaled counts).
+  - Degree-cap.
+
+- Pack into PyTorch Geometric `HeteroData`:
+  - `data["entity"].x = entity_embeddings`
+  - `("entity", "sem", "entity").edge_index / edge_weight`
+  - `("entity", "cooc", "entity").edge_index / edge_weight`
+
+- Implement `save_entity_graph(data, path)` / `load_entity_graph(path)`.
+
+**Artifacts:**
+
+- `data/graph/entity_graph.pt` (PyG HeteroData)
+- `data/graph/entity_meta.json`, `entity_context.json`
 
 **Acceptance:**
-* Unit tests on 5 synthetic queries verify seed selection returns K_seed items, enrichment returns a non-empty string (when enabled), and runtime < 5 ms/query (excluding ANN build).
+
+- Quick size/memory report.
+- Degree distribution sanity-check.
+- Load/reload smoke test.
 
 ---
 
-### Week 2 — Full Graph Build & Guided Retrieval (Shallow Multi-hop)
+## 3. Week 2 — Query Enrichment & Graph Search
 
-#### Day 8–9: Batch-build full graph (Flickr30K)
+### Day 8–9: Query enrichment (mandatory pipeline)
 
-**Chunked k-NN:**
-* Process captions and images separately in chunks (e.g., 8k vectors/chunk) to build semantic edges; keep top-k_sem and enforce degree caps
+**Tasks:**
 
-**Co-occurrence edges:**
-* Add caption↔image edges from dataset pairs; add caption↔caption edges for captions belonging to the same image (optional)
+- Implement `enrich_query(query, dataset, encoders, entity_context, cfg)`:
 
-**Save artifacts:**
-* `data/graph/x_image.pt`, `x_caption.pt`, `eidx_image_sem.pt`, `w_image_sem.pt`, `eidx_caption_sem.pt`, `w_caption_sem.pt`, `eidx_caption_image_paired.pt`, `maps.json`
+  1. Encode original query with CLIP → `q0`.
+  2. CLIP search over captions/images → top-`K_seed_raw`.
+  3. Collect candidate entities from those seeds (via `entity_context`).
+  4. Score entities by:
+     - frequency in seeds
+     - similarity between entity embedding and `q0`
+  5. Select top-`M_enrich` entities.
+  6. Build enriched text:
+     - For text query: `f"{query}. Related: {e1}, {e2}, ..."`
+     - For image query: `"photo of e1, e2, e3, ..."`
+  7. Encode enriched text with CLIP → `q_enriched`.
+
+- Integrate into search pipeline:
+  - Graph mode **always** calls `enrich_query` first.
+  - Baseline modes can bypass for ablations.
 
 **Acceptance:**
-* Build time logged; memory footprint recorded; spot-check degree distributions; reload test passes.
+
+- Unit tests on a few example queries.
+- Log enriched text and entities for inspection.
 
 ---
 
-#### Day 10–11: Implement guided expansion (LightRAG-style)
+### Day 10–12: Graph expansion (multi-hop LightRAG-style)
 
-**Frontier & beam:**
-* Data structure: a min-heap or priority queue keyed by `score(node)`; maintain visited sets per node type
-* **Score update:**
-  * Initialize seeds with score=1.0 (or normalized CLIP similarity)
-  * For edge (u→v), `score_v_candidate = score_u × (decay^hop) × (edge_weight × type_weight)`
-    * `type_weight`: sem=1.0, cooc=0.7
+**Tasks:**
 
-**Multi-hop:**
-* For hop in 1..H:
-  * For each node in current beam (size B), expand up to its top `expansion_cap` neighbors (e.g., ≤ degree_cap)
-  * Add/update scores for neighbors; if already visited, keep the max score
-* Maintain collected set; stop if `|collected| ≥ N_max` or `elapsed > T_cap_ms`
+- Implement `graph_search(query, graph, encoders, cfg)`:
 
-**Candidate extraction:**
-* Collect image nodes from visited/collected; compute a "graph score" per image = max score encountered for that image (or aggregate by sum/max)
+  1. Call `enrich_query` → `q_enriched`.
+  2. Compute similarity between `q_enriched` and all entity embeddings.
+  3. Select top-`K_seed` entity seeds.
+  4. Initialize a priority queue (max-heap) of frontier nodes:
+     - Key: `score(node)`
+     - Seed scores start from similarity to `q_enriched`.
+  5. Expand up to:
+     - `H_max` hops (default 2),
+     - `B` nodes processed,
+     - or `T_cap_ms` runtime.
+
+- Scoring rule:
+  - For each edge `u → v` at hop `h`:
+
+    \
+    score_v += score_u * decay**h * edge_weight * type_weight
+    \
+
+  - `decay ≈ 0.85`
+  - `type_weight = 1.0` for semantic, `0.7` for co-occurrence.
+
+- Maintain:
+  - `visited` set to avoid loops.
+  - `entity_scores` dict keyed by `entity_id`.
+
+- After expansion:
+  - Convert `entity_scores` → `image_kg_scores` using `entity_context`.
 
 **Acceptance:**
-* On 25-query smoke set, expansion completes under T_cap_ms with `|collected| ≤ N_max`; returns a non-empty candidate list per query.
+
+- Smoke test: for a few queries, print:
+  - Seed entities
+  - Expanded entities
+  - Top images by KG score.
+- Log runtime to verify within budget.
 
 ---
 
-#### Day 12: KG-based re-ranking + fusion plumbing
+### Day 13–14: Score fusion & integration with existing pipeline
 
-**KG score:**
-* **Option A (fast):** shortest-path approximation via hop count from seeds (if edge_index is unweighted for sem/cooc); `kg_score = 1 / (1 + min_hops)`
-* **Option B (richer):** approximate personalized PageRank (few power iterations over the subgraph only); kg_score in [0,1]
+**Tasks:**
 
-**Normalize & combine:**
-* `clip_norm`: min-max over candidate list (avoid div-by-zero)
-* (Optional) `stage2_norm`: only if Stage-2 is enabled and correlation with CLIP is strong; otherwise skip
-* `kg_norm`: min-max normalized
-* `final_score = w1*clip_norm + w2*stage2_norm + w3*kg_norm`, defaults w1=0.7, w2=0.0/0.2, w3=0.1
-* **Fallback:** if `|ρ(clip, stage2)| < 0.15` → `rank_fusion(clip_rank, kg_rank[, stage2_rank])` using RRF
+- Integrate KG scores into the main retrieval function:
+  - For each candidate image, gather:
+    - `clip_score` (existing Stage 1)
+    - `stage2_score` (optional BLIP-2 Stage 2)
+    - `kg_score` (from entity graph)
+
+- Implement normalization + fusion:
+  - Per-query min–max or softmax normalization.
+  - Weighted sum:
+
+    \
+    final = w1 * clip + w2 * stage2 + w3 * kg
+    \
+
+  - Default configs for:
+    - KG-only (no BLIP-2)
+    - Full hybrid.
+
+- Ensure **fallback paths**:
+  - If KG not built/loaded → fall back to Hybrid.
+  - If BLIP-2 disabled → adjust weights accordingly.
 
 **Acceptance:**
-* Deterministic ranking for fixed seed/random seeds; tests confirm `final_score` monotonic with each component when others are constant.
+
+- End-to-end search runs in:
+  - CLIP-only
+  - Hybrid (no KG)
+  - KG+CLIP
+  - Full hybrid modes.
 
 ---
 
-#### Day 13–14: Integrate Query Contextualization and add Graph mode to evaluator
+## 4. Week 3 — Context, Evaluation & Tuning
 
-**Enrichment integration:**
-* If `enrichment.enabled`, call `enrich_query()` once before CLIP seeding; re-encode enriched text; proceed with seed selection
+### Day 15–16: Context synthesizer (entity-based)
 
-**Evaluator additions:**
-* Add mode "Graph-augmented":
-  * Step 1: (optional) enrich → encode → seed
-  * Step 2: guided expansion (B, H, decay, caps)
-  * Step 3: candidate finalization + re-ranking
-  * Output: ranked image IDs
-* Metrics: Recall@1/5/10, MRR, nDCG@10; latency mean/median; signed deltas vs CLIP-only
+**Tasks:**
+
+- Implement `synthesize_context(query, ranked_images, entity_scores, graph, cfg)`:
+
+  1. For top-`K_ctx` images:
+     - Gather contributing entities with highest weights.
+  2. Build text snippets per image:
+     - `"Image {id}: entities = e1, e2, e3"`
+     - Optionally attach one caption.
+  3. Package as:
+
+     ```python
+     {
+       "texts": [...],
+       "image_refs": [{"image_id": ..., "path": ...}, ...],
+       "metadata": {
+         "top_entities": [...],
+         "graph_stats": {...}
+       }
+     }
+     ```
 
 **Acceptance:**
-* On 25-query smoke test: Graph mode runs end-to-end; logs include seed size, hops, collected nodes, and time breakdowns (seed/expansion/rerank).
+
+- Save 2–3 example contexts to disk.
+- Manually inspect for interpretability.
 
 ---
 
-### Week 3 — Hardening, Tuning, and Reporting
+### Day 17–19: Evaluation & ablations
 
-#### Day 15–16: Latency & agreement guardrails; ablations
+**Tasks:**
 
-**Guardrails:**
-* Early exit: if `elapsed > T_cap_ms` at any step → return CLIP ranking
-* Stage-2 gating (if used): skip Stage-2 when `|ρ(clip, stage2)| < 0.05`; use rank_fusion when `|ρ| < 0.15`
+- Extend the evaluator:
+  - Add **Graph mode** and **Full hybrid mode**.
+  - Measure:
+    - R@1, R@5, R@10
+    - MRR
+    - Latency per query.
 
-**Ablations (25-query set):**
-* Enrichment ON/OFF; KG re-rank ON/OFF; B∈{10,20}, H∈{1,2}, K_seed∈{5,10,15}; decay∈{0.8,0.85,0.9}; w3∈{0.05,0.1,0.2}
+- Run comparisons:
+  1. CLIP-only baseline
+  2. Hybrid baseline (CLIP + BLIP-2, no KG)
+  3. CLIP + KG + enrichment
+  4. CLIP + BLIP-2 + KG + enrichment
+
+- Ablations:
+  - Disable enrichment (holds H_max, KG) to see its impact.
+  - Set `H_max = 0` (no expansion) vs `H_max = 2` (expansion).
+  - Try a few different fusion weight sets `(w1, w2, w3)`.
 
 **Acceptance:**
-* Record a table (or JSON) of metrics and latency for each toggle; pick a default that meets success criteria (no Recall@10 drop, R@1/MRR ≥ Hybrid, Δlatency ≤ +250 ms over CLIP-only median).
+
+- Table of metrics saved (e.g. `results/phase4_eval.json` + markdown summary).
+- Chosen defaults recorded in YAML configs with rationale.
 
 ---
 
-#### Day 17: Robustness & edge cases
+### Day 20–21: Cleanup & documentation
 
-**Determinism:** 
-* Fix seeds with FAST_SEED for smoke tests; ensure numpy/pytorch RNG seeding where applicable
+**Tasks:**
 
-**Empty/short captions:** 
-* Enrichment should degrade gracefully
-
-**Disconnected components:** 
-* If seeds land in sparse regions, fallback maintains CLIP ranking
-
-**Memory checks:** 
-* Verify degree caps; ensure edge tensors are fp16 where safe
+- Clean code, type hints, docstrings.
+- Write a short developer README section:
+  - How to build the entity graph.
+  - How to run graph-based search.
+  - How to reproduce evaluation.
+- Tag Phase 4 completion in git.
 
 **Acceptance:**
-* All tests pass; no crashes on missing neighbors; memory within budget.
+
+- Code passes lint/format checks (if any).
+- Plan items checked off.
+- Ready for Phase 5 LLM integration.
 
 ---
 
-#### Day 18–19: Context synthesizer stub & example payloads
-
-**`synthesize_context(query, results, graph, cfg)`:**
-* **texts:** gather top captions for the top-N images (truncate to ~120 chars)
-* **image_refs:** absolute file paths or base64 URIs (configurable; default paths)
-* **metadata:** image_ids, caption_ids (top hits), edges_summary (counts per edge type in subgraph)
-
-**Save 2–3 example payloads for qualitative inspection**
-
-**Acceptance:**
-* JSON payloads validate; evaluator prints a short summary snippet per mode.
-
----
-
-#### Day 20–21: Final evaluation run & short report
-
-**Run the 25-query smoke test across:**
-* CLIP-only, Hybrid (fixed), Graph (no enrichment), Graph (+enrichment)
-
-**Report (short, structured notes or JSON):**
-* Metrics per mode; Δ vs CLIP-only; latency budget adherence
-* What helped most (e.g., KG re-rank + enrichment + B=20, H=2)
-* Defaults to use going forward (cfg snapshot)
-
-**Acceptance:**
-* Graph mode meets success criteria or is clearly justified with trade-offs and next steps (e.g., keep KG re-rank on; keep enrichment off by default if it adds latency with negligible gain).
-
----
-
-## Deliverables Checklist
-
-### Design & Scaffolding (Week 1)
-- [ ] Node types: image, caption (region stub optional)
-- [ ] Edge types: semantic, co-occurrence
-- [ ] Config YAML (`configs/phase4_graph.yaml`) created with all parameters
-- [ ] PyG containers implemented
-- [ ] Serialization/deserialization working
-- [ ] Enrichment interface implemented
-
-### Graph Build & Retrieval (Week 2)
-- [ ] Graph serialization/load working on full dataset
-- [ ] Degree-capped semantic & co-occurrence edges
-- [ ] Seed selection implemented
-- [ ] Enrichment (toggle) working
-- [ ] Guided expansion (H≤2, B=20) implemented
-- [ ] KG re-rank implemented
-
-### Evaluation & Context (Week 3)
-- [ ] Evaluator supports Graph mode
-- [ ] Metrics & latency logged
-- [ ] Ablation results for key knobs
-- [ ] Context stub produces `{texts, image_refs, metadata}`
-- [ ] Sample payloads saved (2-3 examples)
-- [ ] Final defaults chosen and recorded in YAML configs
-
----
-
-**Ready to implement!** This detailed day-by-day plan ensures steady progress toward a working knowledge graph retrieval system with proper evaluation and context preparation for Phase 5.
+**Result:** At the end of this implementation plan, the project has:
+- An **entity-centric KG** built from Flickr30K captions.
+- **Mandatory query enrichment** in the KG pipeline.
+- A **graph expansion** module that propagates relevance along entity relations.
+- Full integration with the existing CLIP/Hybrid system and evaluation framework.
