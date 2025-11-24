@@ -69,7 +69,7 @@ print(f"Found {len(results)} images!")
 ```
 hybrid_multimodal_retrieval/
 ├── configs/                 # YAML configuration files
-│   ├── graph_config.yaml   # Phase 4 graph retrieval settings
+│   ├── entity_graph.yaml   # Phase 4 entity graph + query enrichment + search config
 │   ├── clip_config.yaml    # CLIP model configuration
 │   ├── faiss_config.yaml   # FAISS index settings
 │   └── blip2_config.yaml   # BLIP-2 model configuration
@@ -80,7 +80,7 @@ hybrid_multimodal_retrieval/
 ├── src/                     # Core source code
 │   ├── encoders/           # CLIP-space utilities (Phase 4)
 │   ├── flickr30k/          # Dataset handling
-│   ├── graph/              # Graph schema (Phase 4)
+│   ├── graph/              # Entity vocabulary + entity graph (Phase 4)
 │   └── retrieval/          # Search engines and indexing
 ├── notebooks/               # Interactive Jupyter demos
 ├── scripts/                 # Utility scripts
@@ -165,30 +165,29 @@ for query, results in batch_results.items():
         print(f"  • {img_id}")
 ```
 
-### Example 6: Phase 4 Graph Utilities
+### Example 6: Phase 4 Entity Vocabulary & Config
 
 ```python
-from src.graph.schema import NodeType, EdgeType, ImageNodeMeta, CaptionNodeMeta
-from src.encoders.clip_space import l2_normalize, ensure_clip_aligned
+from src.graph.config import load_entity_graph_config, print_config_summary
+from src.graph import build_entity_vocabulary, EntityStats
+from src.flickr30k.dataset import Flickr30KDataset
 
-# Define graph nodes
-img_node = ImageNodeMeta(
-    image_id="img_001",
-    path="data/images/photo.jpg",
-    size=(640, 480)
-)
+# Load Phase 4 configuration
+cfg = load_entity_graph_config("configs/entity_graph.yaml")
+print_config_summary(cfg)  # Shows entity_graph, query_enrichment, graph_search, fusion
 
-cap_node = CaptionNodeMeta(
-    caption_id="cap_001",
-    image_id="img_001",
-    text="A beautiful sunset over the ocean"
-)
+# Build entity vocabulary (already implemented)
+dataset = Flickr30KDataset('data/images', 'data/results.csv', auto_load=True)
+entity_vocab, entity_context = build_entity_vocabulary(dataset, cfg)
 
-# CLIP-space utilities
-import numpy as np
-embeddings = np.random.rand(10, 512).astype(np.float32)
-normalized = l2_normalize(embeddings)  # L2-normalize with NaN/Inf guards
-ensure_clip_aligned(normalized, dim=512, check_unit_norm=True)
+print(f"Built vocabulary with {len(entity_vocab)} entities")
+
+# Access entity stats
+for entity_name, stats in list(entity_vocab.items())[:5]:
+    print(f"{entity_name}: df_caption={stats.df_caption}, df_image={stats.df_image}")
+
+# Note: Graph building, query enrichment, and graph search are under development
+# See src/graph/build_entity_graph.py, graph_search.py, context.py (skeletons)
 ```
 
 ---
@@ -204,22 +203,32 @@ ensure_clip_aligned(normalized, dim=512, check_unit_norm=True)
   - Batch processing (2-6x faster)
   - Accuracy: ~65-70% Recall@10
   - Speed: <2000ms end-to-end
-- **Phase 4 (Day 1-2)**: Graph-based retrieval foundation! ✅
-  - Schema definitions (NodeType, EdgeType, metadata)
-  - CLIP-space utilities (L2-norm, shape validation, NaN/Inf guards)
-  - Configuration system (YAML-based, merged configs)
-  - Phase 4 validation script
-- **Phase 4 (Day 3-4)**: PyG containers and serialization! ✅
-  - PyTorch Geometric HeteroData containers
-  - Chunked k-NN semantic edge builder with degree caps
-  - Co-occurrence edge builder (paired & cooccur relations)
-  - Atomic save/load with comprehensive validation
-  - Smoke test script (100-image graph slice)
-  - Test suite: 7 tests, all passing
+- **Phase 4 (Day 0)**: Entity-centric graph setup ✅
+  - Created `configs/entity_graph.yaml` with 4 config sections:
+    - `entity_graph`: paths, min_df, k_sem, degree_cap
+    - `query_enrichment`: K_seed_raw, M_enrich, templates
+    - `graph_search`: K_seed, H_max, B, decay, edge weights
+    - `fusion`: w_clip, w_kg, w_blip2
+  - Created Phase 4 module skeletons with detailed design docs
+  - Config helpers implemented in `src/graph/config.py`
+  - Verification script: all tests passing
+- **Phase 4 (Day 1-2)**: Entity vocabulary & context ✅
+  - Implemented entity extraction & normalization pipeline
+  - Built vocabulary from full Flickr30K (31,783 images, 158,914 captions)
+  - Generated `data/entities/entity_vocab.json` (entity IDs, stats)
+  - Generated `data/entities/entity_context.json` (entity→images/captions)
+  - Code: `src/graph/entities.py`, `scripts/build_entity_vocabulary.py`
   
-### 🚧 What's Next
-- **Phase 4 (Day 5-6)**: Graph retrieval with multi-hop traversal
-- **Phase 4 (Day 7-10)**: LightRAG integration and evaluation
+### 🚧 What's Next (Phase 4 - In Progress)
+- **Entity graph construction**: Build PyG HeteroData with semantic & co-occurrence edges
+  - Skeleton ready: `src/graph/build_entity_graph.py`
+- **Query enrichment**: CLIP-based entity seeding for query expansion
+  - Skeleton ready: `src/graph/graph_search.py`
+- **Graph search**: LightRAG-style beam search with decay and edge weighting
+  - Skeleton ready: `src/graph/graph_search.py`
+- **Context synthesis**: Explainable retrieval with graph reasoning chains
+  - Skeleton ready: `src/graph/context.py`
+- **Evaluation**: Compare CLIP-only vs Hybrid vs KG-augmented modes
 - **Phase 5**: Final polish and deployment
 
 ---
@@ -255,12 +264,16 @@ ensure_clip_aligned(normalized, dim=512, check_unit_norm=True)
 - Try the notebooks - they have all the examples
 
 **Phase 4 Development?**
-- See `PHASE_4_PLAN.md` for implementation details
-- Graph schema: `src/graph/schema.py`
-- Graph building: `src/graph/build.py`, `src/graph/store.py`
-- CLIP utilities: `src/encoders/clip_space.py`
-- Configuration: `configs/graph_config.yaml`
-- Day 3-4 docs: `docs/PHASE4_DAY3_4_*.md`
+- See `PHASE_4_PLAN.md` for entity-centric design details
+- Configuration: `configs/entity_graph.yaml` (4 sections: entity_graph, query_enrichment, graph_search, fusion)
+- Entity vocabulary: `src/graph/entities.py` (✅ implemented)
+- Config helpers: `src/graph/config.py` (✅ implemented)
+- Graph construction: `src/graph/build_entity_graph.py` (🚧 skeleton, under development)
+- Query enrichment & search: `src/graph/graph_search.py` (🚧 skeleton, under development)
+- Context synthesis: `src/graph/context.py` (🚧 skeleton, under development)
+- Module exports & status: `src/graph/__init__.py`
+- Setup verification: `scripts/verify_day0_setup.py`
+- Day 0 completion: `PHASE_4_DAY_0_COMPLETE.md`
 
 **Still stuck?**
 - Open an issue on GitHub

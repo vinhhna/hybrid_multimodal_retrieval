@@ -126,7 +126,7 @@ def main() -> None:
     print(f"✓ Adapter ready: {len(adapted_dataset)} images")
     
     # Load configuration from YAML
-    config_path = project_root / "config" / "entity_graph.yaml"
+    config_path = project_root / "configs" / "entity_graph.yaml"
     if not config_path.exists():
         raise FileNotFoundError(f"Config file not found: {config_path}")
     
@@ -140,7 +140,7 @@ def main() -> None:
         )
     
     entity_cfg = cfg["entity_graph"]
-    print(f"\n⚙️  Configuration (from config/entity_graph.yaml):")
+    print(f"\n⚙️  Configuration (from configs/entity_graph.yaml):")
     print(f"  min_df: {entity_cfg.get('min_df')}")
     print(f"  max_samples: {entity_cfg.get('max_samples')}")
     print(f"  vocab_path: {entity_cfg.get('vocab_path')}")

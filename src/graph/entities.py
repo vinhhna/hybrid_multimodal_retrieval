@@ -20,6 +20,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Set, Tuple
 
+# ============================================================================
+# Type aliases for Phase 4
+# ============================================================================
+
+EntityId = int  # Integer entity ID assigned after filtering by min_df
+
 
 # ============================================================================
 # Normalization regex patterns
@@ -38,11 +44,15 @@ class EntityStats:
     """
     Aggregated statistics for a single normalized entity string.
 
+    This is the primary vocabulary entry for Phase 4 entity-centric graph.
+    Each entity will be represented as a node in the entity graph.
+
     Attributes:
         id: Integer entity ID assigned after filtering by min_df.
+            This ID is used as the node index in the entity graph.
         df_caption: Number of distinct captions containing this entity.
         df_image: Number of distinct images containing this entity.
-        cf: Total count of this entity across all captions.
+        cf: Total count of this entity across all captions (corpus frequency).
     """
     id: int
     df_caption: int

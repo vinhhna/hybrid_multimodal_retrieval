@@ -19,7 +19,92 @@ entity_graph:
   # These JSON files contain the vocabulary and context mappings.
   vocab_path: "data/entities/entity_vocab.json"
   context_path: "data/entities/entity_context.json"
+  entity_embeddings_path: "data/entities/entity_embeddings.pt"
+  entity_graph_path: "data/entities/entity_graph.pt"
 
   # Verbose mode: print progress logs while building the vocabulary
   # Set to true for detailed logging, false for minimal output
   verbose: true
+
+  # Graph construction parameters (to be implemented in later days)
+  # k_sem: number of nearest neighbors for semantic edges
+  k_sem: 16
+  # degree_cap: maximum degree per node to avoid hub explosion
+  degree_cap: 64
+
+# ============================================================================
+# QUERY ENRICHMENT CONFIGURATION
+# ============================================================================
+# Configuration for query enrichment (Phase 4 - to be implemented)
+# Enrichment seeds entities from CLIP search results and expands query text.
+# ============================================================================
+
+query_enrichment:
+  # Enable/disable query enrichment globally
+  enabled: true
+
+  # K_seed_raw: number of top CLIP results to use for seeding entity enrichment
+  K_seed_raw: 100
+
+  # M_enrich: number of top entities to select for query enrichment
+  M_enrich: 5
+
+  # Template for enriched text query
+  # Placeholder {query} will be replaced with original query
+  # Placeholder {entities} will be replaced with comma-separated entity names
+  text_template: "{query}. Related: {entities}"
+
+  # Template for enriched image query
+  # Placeholder {entities} will be replaced with comma-separated entity names
+  image_template: "photo of {entities}"
+
+# ============================================================================
+# GRAPH SEARCH CONFIGURATION
+# ============================================================================
+# Configuration for graph search over the entity graph (Phase 4 - to be implemented)
+# Uses beam search with decay and edge-type weighting.
+# ============================================================================
+
+graph_search:
+  # K_seed: number of seed entities to start graph expansion from
+  K_seed: 10
+
+  # H_max: maximum number of hops for graph expansion
+  # Default 2, optionally 3 for experiments
+  H_max: 2
+
+  # B: maximum number of nodes to process during expansion (beam width)
+  B: 20
+
+  # N_max: maximum total entities to collect during search
+  N_max: 200
+
+  # T_cap_ms: time budget for graph search in milliseconds
+  T_cap_ms: 150
+
+  # Decay factor for score propagation across hops
+  # score_v += score_u * (decay ** hop) * edge_weight * type_weight
+  decay: 0.85
+
+  # Edge type weights for scoring
+  # type_weight_sem: weight for semantic edges (k-NN in embedding space)
+  type_weight_sem: 1.0
+  # type_weight_cooc: weight for co-occurrence edges (entity co-occurrence in captions/images)
+  type_weight_cooc: 0.7
+
+# ============================================================================
+# FUSION CONFIGURATION
+# ============================================================================
+# Configuration for fusing CLIP, KG, and BLIP-2 scores (Phase 4 - to be implemented)
+# Final score = w_clip * clip_norm + w_kg * kg_norm + w_blip2 * blip2_norm
+# ============================================================================
+
+fusion:
+  # Weight for CLIP bi-encoder similarity scores
+  w_clip: 0.7
+
+  # Weight for knowledge graph (KG) derived image scores
+  w_kg: 0.2
+
+  # Weight for BLIP-2 cross-encoder reranking scores
+  w_blip2: 0.1
