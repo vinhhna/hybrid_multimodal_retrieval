@@ -18,7 +18,11 @@ import re
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Set, Tuple
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Set, Tuple, TYPE_CHECKING
+
+# Type checking imports
+if TYPE_CHECKING:
+    import torch
 
 # ============================================================================
 # Type aliases for Phase 4
@@ -457,3 +461,213 @@ def save_entity_artifacts(
     
     with context_path.open("w", encoding="utf-8") as f:
         json.dump(context_out, f, ensure_ascii=False, indent=2)
+
+
+# ============================================================================
+# Entity embeddings and metadata (Phase 4 Day 3-4)
+# ============================================================================
+
+def l2_normalize(x: torch.Tensor, dim: int = -1, eps: float = 1e-8) -> torch.Tensor:
+    """
+    L2-normalize a tensor along a specified dimension.
+    
+    Args:
+        x: Input tensor.
+        dim: Dimension along which to normalize.
+        eps: Small constant for numerical stability.
+    
+    Returns:
+        L2-normalized tensor with the same shape as x.
+    """
+    import torch as torch_module
+    
+    norm = torch_module.linalg.norm(x, dim=dim, keepdim=True)
+    return x / (norm + eps)
+
+
+def build_entity_embeddings_and_meta(
+    text_encoder: Any,
+    entity_vocab: Dict[str, EntityStats],
+    cfg: Dict[str, Any],
+) -> Tuple[torch.Tensor, Dict[int, Dict[str, Any]]]:
+    """
+    Build entity embeddings and metadata from entity vocabulary.
+    
+    This function encodes each entity name using a CLIP text encoder,
+    L2-normalizes the embeddings, and produces:
+      - A tensor of shape [N_entities, d_model] with L2-normalized embeddings
+      - A metadata dict mapping entity_id to {name, df_caption, df_image, cf}
+    
+    The embeddings are built deterministically by iterating entities in ID order.
+    
+    Args:
+        text_encoder: CLIP text encoder instance with an encode_text() method
+            that accepts a list of strings and returns a tensor [B, d_model].
+            Expected to be a BiEncoder or similar wrapper from src.retrieval.
+        entity_vocab: Entity vocabulary mapping entity names to EntityStats.
+        cfg: Configuration dictionary with keys:
+            - entity_graph.entity_text_template: str, template for entity text
+            - entity_graph.batch_size: optional int, batch size for encoding
+    
+    Returns:
+        embeddings: Tensor of shape [N_entities, 512], dtype=float32, L2-normalized.
+        entity_meta: Dict mapping entity_id (int) to metadata dict with keys:
+            {name, df_caption, df_image, cf}
+    
+    Raises:
+        ValueError: If embeddings contain NaNs or Infs.
+        RuntimeError: If embedding dimension is not 512.
+    """
+    import torch as torch_module
+    
+    # Extract config parameters
+    entity_cfg = cfg.get("entity_graph", {})
+    template = entity_cfg.get("entity_text_template", "{}")
+    batch_size = entity_cfg.get("batch_size", 64)
+    
+    print("\n" + "=" * 70)
+    print("BUILDING ENTITY EMBEDDINGS AND METADATA")
+    print("=" * 70)
+    print(f"  Entity text template: '{template}'")
+    print(f"  Batch size: {batch_size}")
+    
+    # Build deterministic ID-ordered lists
+    num_entities = max(stats.id for stats in entity_vocab.values()) + 1
+    id_to_name = [None] * num_entities
+    id_to_stats = [None] * num_entities
+    
+    for name, stats in entity_vocab.items():
+        eid = stats.id
+        id_to_name[eid] = name
+        id_to_stats[eid] = stats
+    
+    # Validate that all IDs are assigned
+    if any(name is None for name in id_to_name):
+        raise ValueError("Entity vocabulary has missing IDs")
+    
+    print(f"\n  Total entities: {num_entities}")
+    print(f"  Sample entities (first 5):")
+    for i in range(min(5, num_entities)):
+        print(f"    ID {i}: '{id_to_name[i]}'")
+    
+    # Build text inputs using template
+    texts = [template.format(name) for name in id_to_name]
+    
+    # Encode in batches
+    print(f"\n  Encoding entities in batches...")
+    all_embs = []
+    
+    for i in range(0, len(texts), batch_size):
+        batch_texts = texts[i:i + batch_size]
+        
+        # Call text_encoder.encode_text()
+        # Suppress gradients for efficiency
+        with torch_module.no_grad():
+            batch_emb = text_encoder.encode_text(batch_texts)
+        
+        # Move to CPU and convert to float32
+        batch_emb = batch_emb.cpu().to(torch_module.float32)
+        all_embs.append(batch_emb)
+        
+        if (i // batch_size + 1) % 10 == 0 or (i + batch_size) >= len(texts):
+            print(f"    Encoded {min(i + batch_size, len(texts))}/{len(texts)} entities")
+    
+    # Concatenate all batches
+    embeddings = torch_module.cat(all_embs, dim=0)
+    
+    # Validate shape
+    if embeddings.ndim != 2:
+        raise RuntimeError(f"Expected 2D embeddings, got shape {embeddings.shape}")
+    
+    if embeddings.shape[0] != num_entities:
+        raise RuntimeError(
+            f"Expected {num_entities} embeddings, got {embeddings.shape[0]}"
+        )
+    
+    d_model = embeddings.shape[1]
+    if d_model != 512:
+        raise RuntimeError(
+            f"Expected embedding dimension 512, got {d_model}"
+        )
+    
+    print(f"\n  Embedding shape: {list(embeddings.shape)}")
+    
+    # Compute norm statistics before normalization
+    norms_before = torch_module.linalg.norm(embeddings, dim=1)
+    print(f"\n  Norms before L2 normalization:")
+    print(f"    Mean: {norms_before.mean().item():.4f}")
+    print(f"    Min:  {norms_before.min().item():.4f}")
+    print(f"    Max:  {norms_before.max().item():.4f}")
+    
+    # L2-normalize embeddings
+    embeddings = l2_normalize(embeddings, dim=1)
+    
+    # Make contiguous for efficient storage
+    embeddings = embeddings.contiguous()
+    
+    # Validate for NaNs/Infs
+    if not torch_module.isfinite(embeddings).all():
+        num_bad = (~torch_module.isfinite(embeddings)).sum().item()
+        raise ValueError(
+            f"Entity embeddings contain {num_bad} non-finite values (NaNs/Infs)"
+        )
+    
+    # Compute norm statistics after normalization
+    norms_after = torch_module.linalg.norm(embeddings, dim=1)
+    print(f"\n  Norms after L2 normalization:")
+    print(f"    Mean: {norms_after.mean().item():.4f}")
+    print(f"    Min:  {norms_after.min().item():.4f}")
+    print(f"    Max:  {norms_after.max().item():.4f}")
+    
+    # Build entity metadata
+    entity_meta: Dict[int, Dict[str, Any]] = {}
+    for eid, (name, stats) in enumerate(zip(id_to_name, id_to_stats)):
+        entity_meta[eid] = {
+            "name": name,
+            "df_caption": int(stats.df_caption),
+            "df_image": int(stats.df_image),
+            "cf": int(stats.cf),
+        }
+    
+    print(f"\n  ✓ Built embeddings and metadata for {num_entities} entities")
+    print("=" * 70)
+    
+    return embeddings, entity_meta
+
+
+def save_entity_embeddings_and_meta(
+    embeddings: torch.Tensor,
+    entity_meta: Dict[int, Dict[str, Any]],
+    embeddings_path: Path,
+    meta_path: Path,
+) -> None:
+    """
+    Save entity embeddings and metadata to disk.
+    
+    Args:
+        embeddings: Tensor of shape [N_entities, d_model] with entity embeddings.
+        entity_meta: Dictionary mapping entity_id to metadata.
+        embeddings_path: Output path for embeddings tensor (will use torch.save).
+        meta_path: Output path for metadata JSON.
+    
+    Side effects:
+        Creates parent directories if needed.
+        Overwrites existing files (idempotent).
+    """
+    import torch as torch_module
+    
+    # Ensure output directories exist
+    embeddings_path.parent.mkdir(parents=True, exist_ok=True)
+    meta_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    # Save embeddings tensor
+    torch_module.save(embeddings, str(embeddings_path))
+    print(f"\n✓ Saved embeddings to: {embeddings_path}")
+    
+    # Save metadata JSON (convert int keys to strings for JSON compatibility)
+    meta_out = {str(eid): meta for eid, meta in entity_meta.items()}
+    
+    with meta_path.open("w", encoding="utf-8") as f:
+        json.dump(meta_out, f, ensure_ascii=False, indent=2)
+    
+    print(f"✓ Saved metadata to: {meta_path}")

@@ -20,7 +20,16 @@ entity_graph:
   vocab_path: "data/entities/entity_vocab.json"
   context_path: "data/entities/entity_context.json"
   entity_embeddings_path: "data/entities/entity_embeddings.pt"
+  entity_meta_path: "data/entities/entity_meta.json"
   entity_graph_path: "data/entities/entity_graph.pt"
+
+  # Entity embedding generation (Phase 4 Day 3-4)
+  # Toggle to enable/disable entity embedding generation
+  build_entity_embeddings: true
+
+  # Template for entity text encoding (use {} as placeholder for entity name)
+  # Example: "a photo of {}" will encode "brown dog" as "a photo of brown dog"
+  entity_text_template: "a photo of {}"
 
   # Verbose mode: print progress logs while building the vocabulary
   # Set to true for detailed logging, false for minimal output

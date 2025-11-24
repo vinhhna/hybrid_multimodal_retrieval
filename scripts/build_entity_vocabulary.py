@@ -23,7 +23,12 @@ if project_root not in sys.path:
     sys.path.insert(0, str(project_root))
 
 from src.flickr30k.dataset import Flickr30KDataset
-from src.graph.entities import build_entity_vocabulary
+from src.graph.entities import (
+    build_entity_vocabulary,
+    build_entity_embeddings_and_meta,
+    save_entity_embeddings_and_meta,
+)
+from src.graph.config import load_entity_graph_config, get_entity_graph_config
 
 
 class DatasetAdapter:
@@ -88,7 +93,8 @@ def main() -> None:
       2. Wrap it in DatasetAdapter
       3. Configure entity builder
       4. Call build_entity_vocabulary
-      5. Print summary statistics
+      5. Optionally build entity embeddings and metadata (if enabled in config)
+      6. Print summary statistics
     """
     print("=" * 70)
     print("FLICKR30K ENTITY VOCABULARY BUILDER")
@@ -125,26 +131,26 @@ def main() -> None:
     adapted_dataset = DatasetAdapter(dataset)
     print(f"✓ Adapter ready: {len(adapted_dataset)} images")
     
-    # Load configuration from YAML
+    # Load configuration from YAML using the new helper
     config_path = project_root / "configs" / "entity_graph.yaml"
     if not config_path.exists():
         raise FileNotFoundError(f"Config file not found: {config_path}")
     
     print(f"\n📄 Loading configuration from: {config_path}")
-    with config_path.open("r", encoding="utf-8") as f:
-        cfg = yaml.safe_load(f) or {}
+    cfg = load_entity_graph_config(config_path)
     
     if "entity_graph" not in cfg:
         raise KeyError(
             f"Config file {config_path} must define an 'entity_graph' section."
         )
     
-    entity_cfg = cfg["entity_graph"]
+    entity_cfg = get_entity_graph_config(cfg)
     print(f"\n⚙️  Configuration (from configs/entity_graph.yaml):")
     print(f"  min_df: {entity_cfg.get('min_df')}")
     print(f"  max_samples: {entity_cfg.get('max_samples')}")
     print(f"  vocab_path: {entity_cfg.get('vocab_path')}")
     print(f"  context_path: {entity_cfg.get('context_path')}")
+    print(f"  build_entity_embeddings: {entity_cfg.get('build_entity_embeddings')}")
     
     # Build entity vocabulary
     print(f"\n" + "=" * 70)
@@ -173,6 +179,75 @@ def main() -> None:
                 f"df_image={stats.df_image}, "
                 f"cf={stats.cf}"
             )
+    
+    # Build entity embeddings and metadata if enabled
+    build_embeddings = entity_cfg.get("build_entity_embeddings", False)
+    
+    if build_embeddings and len(entity_vocab) > 0:
+        print(f"\n" + "=" * 70)
+        print("BUILDING ENTITY EMBEDDINGS AND METADATA")
+        print("=" * 70)
+        
+        # Initialize CLIP text encoder
+        print("\n📦 Loading CLIP text encoder...")
+        try:
+            from src.retrieval.bi_encoder import BiEncoder
+            
+            # Use the same CLIP model as in retrieval
+            text_encoder = BiEncoder(model_name='ViT-B/32', device='cuda')
+            print(f"  ✓ Loaded model: {text_encoder.model_name}")
+            print(f"  ✓ Device: {text_encoder.device}")
+        except Exception as e:
+            print(f"  ✗ Failed to load CLIP encoder: {e}")
+            print("  Skipping entity embeddings")
+            build_embeddings = False
+        
+        if build_embeddings:
+            # Build embeddings and metadata
+            try:
+                embeddings, entity_meta = build_entity_embeddings_and_meta(
+                    text_encoder=text_encoder,
+                    entity_vocab=entity_vocab,
+                    cfg=cfg,
+                )
+                
+                # Resolve output paths from config
+                embeddings_path = Path(entity_cfg.get(
+                    "entity_embeddings_path",
+                    "data/entities/entity_embeddings.pt"
+                ))
+                meta_path = Path(entity_cfg.get(
+                    "entity_meta_path",
+                    "data/entities/entity_meta.json"
+                ))
+                
+                # Make paths absolute if they're relative
+                if not embeddings_path.is_absolute():
+                    embeddings_path = project_root / embeddings_path
+                if not meta_path.is_absolute():
+                    meta_path = project_root / meta_path
+                
+                # Save artifacts
+                save_entity_embeddings_and_meta(
+                    embeddings=embeddings,
+                    entity_meta=entity_meta,
+                    embeddings_path=embeddings_path,
+                    meta_path=meta_path,
+                )
+                
+                print(f"\n✓ Entity embeddings and metadata saved successfully")
+                print(f"  Embeddings: {embeddings_path}")
+                print(f"  Metadata: {meta_path}")
+                
+            except Exception as e:
+                print(f"\n✗ Failed to build entity embeddings: {e}")
+                import traceback
+                traceback.print_exc()
+    else:
+        if not build_embeddings:
+            print(f"\n⏭️  Skipping entity embeddings (build_entity_embeddings=False)")
+        elif len(entity_vocab) == 0:
+            print(f"\n⏭️  Skipping entity embeddings (empty vocabulary)")
     
     print(f"\n" + "=" * 70)
     print("✅ ENTITY VOCABULARY BUILD COMPLETE")

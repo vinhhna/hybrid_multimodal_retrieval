@@ -82,7 +82,11 @@ def get_entity_graph_config(cfg: Dict[str, Any]) -> Dict[str, Any]:
         "vocab_path": entity_cfg.get("vocab_path", "data/entities/entity_vocab.json"),
         "context_path": entity_cfg.get("context_path", "data/entities/entity_context.json"),
         "entity_embeddings_path": entity_cfg.get("entity_embeddings_path", "data/entities/entity_embeddings.pt"),
+        "entity_meta_path": entity_cfg.get("entity_meta_path", "data/entities/entity_meta.json"),
         "entity_graph_path": entity_cfg.get("entity_graph_path", "data/entities/entity_graph.pt"),
+        "build_entity_embeddings": entity_cfg.get("build_entity_embeddings", False),
+        "entity_text_template": entity_cfg.get("entity_text_template", "{}"),
+        "batch_size": entity_cfg.get("batch_size", 64),
         "max_samples": entity_cfg.get("max_samples"),
         "verbose": entity_cfg.get("verbose", False),
     }
