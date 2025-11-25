@@ -560,13 +560,17 @@ def build_entity_embeddings_and_meta(
     for i in range(0, len(texts), batch_size):
         batch_texts = texts[i:i + batch_size]
         
-        # Call text_encoder.encode_text()
-        # Suppress gradients for efficiency
-        with torch_module.no_grad():
-            batch_emb = text_encoder.encode_text(batch_texts)
+        # Call text_encoder.encode_texts() (note: plural)
+        # BiEncoder returns numpy array, we need to convert to torch tensor
+        batch_emb = text_encoder.encode_texts(
+            batch_texts,
+            batch_size=len(batch_texts),
+            normalize=False,  # We'll normalize later
+            show_progress=False
+        )
         
-        # Move to CPU and convert to float32
-        batch_emb = batch_emb.cpu().to(torch_module.float32)
+        # Convert numpy to torch tensor and ensure float32
+        batch_emb = torch_module.from_numpy(batch_emb).to(torch_module.float32)
         all_embs.append(batch_emb)
         
         if (i // batch_size + 1) % 10 == 0 or (i + batch_size) >= len(texts):
