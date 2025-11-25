@@ -8,11 +8,14 @@ It loads entity embeddings and context, constructs the graph with semantic
 and co-occurrence edges, and saves it to the configured path.
 
 Usage (from repo root):
-    python scripts/build_entity_graph.py
+    python scripts/build_entity_graph.py [--data-folder PATH]
     
     or
     
-    python -m scripts.build_entity_graph
+    python -m scripts.build_entity_graph [--data-folder PATH]
+
+Arguments:
+    --data-folder PATH    Path to the data folder (default: /kaggle/input/flickr30k/data)
 
 Output:
     - data/graph/entity_graph.pt (or path from config)
@@ -23,6 +26,7 @@ For testing the graph construction logic, use:
 
 from __future__ import annotations
 
+import argparse
 import json
 import sys
 from pathlib import Path
@@ -37,6 +41,21 @@ def main() -> None:
     Loads configuration, entity artifacts, builds the graph, and saves it.
     Prints a summary of the constructed graph.
     """
+    # Parse command-line arguments
+    parser = argparse.ArgumentParser(
+        description="Build entity graph for Phase 4",
+        formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    parser.add_argument(
+        "--data-folder",
+        type=str,
+        default="/kaggle/input/flickr30k/data",
+        help="Path to the data folder (default: /kaggle/input/flickr30k/data)"
+    )
+    args = parser.parse_args()
+    
+    data_folder = Path(args.data_folder)
+    
     # Resolve project root and add to path
     project_root = Path(__file__).resolve().parent.parent
     if project_root not in sys.path:
@@ -48,6 +67,8 @@ def main() -> None:
     print("=" * 70)
     print("ENTITY GRAPH BUILDER - PHASE 4 DAY 5-7")
     print("=" * 70)
+    print(f"\n[Data Folder]")
+    print(f"  Using data folder: {data_folder}")
     
     # Load configuration
     config_path = project_root / "configs" / "entity_graph.yaml"
@@ -65,10 +86,26 @@ def main() -> None:
     print(f"    k_sem: {cfg_entity_graph['k_sem']}")
     print(f"    degree_cap: {cfg_entity_graph['degree_cap']}")
     
-    # Resolve artifact paths
-    embeddings_path = project_root / cfg_entity_graph["entity_embeddings_path"]
-    context_path = project_root / cfg_entity_graph["context_path"]
-    graph_path = project_root / cfg_entity_graph["entity_graph_path"]
+    # Resolve artifact paths (use data_folder if not absolute paths)
+    embeddings_path_cfg = Path(cfg_entity_graph["entity_embeddings_path"])
+    context_path_cfg = Path(cfg_entity_graph["context_path"])
+    graph_path_cfg = Path(cfg_entity_graph["entity_graph_path"])
+    
+    # Use data_folder as base if paths are relative
+    if embeddings_path_cfg.is_absolute():
+        embeddings_path = embeddings_path_cfg
+    else:
+        embeddings_path = data_folder / embeddings_path_cfg
+    
+    if context_path_cfg.is_absolute():
+        context_path = context_path_cfg
+    else:
+        context_path = data_folder / context_path_cfg
+    
+    if graph_path_cfg.is_absolute():
+        graph_path = graph_path_cfg
+    else:
+        graph_path = data_folder / graph_path_cfg
     
     # Check prerequisites
     if not embeddings_path.exists():
