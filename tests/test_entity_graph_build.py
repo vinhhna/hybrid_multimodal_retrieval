@@ -4,12 +4,18 @@ Smoke tests for entity graph construction (Phase 4 Day 5-7).
 These tests validate the graph construction logic without owning the canonical
 entity_graph.pt artifact. Tests use in-memory graphs or temporary files.
 
-Run with pytest:
+This test is Kaggle-only and automatically detects the data folder via:
+1. DATA_FOLDER environment variable (if set), or
+2. /kaggle/input/flickr30k (if it exists), or
+3. Skips the test if neither is available.
+
+Run with pytest on Kaggle:
     pytest tests/test_entity_graph_build.py -v
     pytest tests/test_entity_graph_build.py::test_entity_graph_build_smoke -v
     
-For Kaggle environment:
-    pytest tests/test_entity_graph_build.py -v --data-folder=/kaggle/input/flickr30k
+Optional: Set DATA_FOLDER environment variable:
+    export DATA_FOLDER=/kaggle/input/flickr30k
+    pytest tests/test_entity_graph_build.py -v
 """
 
 from __future__ import annotations
@@ -22,16 +28,6 @@ from pathlib import Path
 
 import pytest
 import torch
-
-
-def pytest_addoption(parser):
-    """Add custom command line options for pytest."""
-    parser.addoption(
-        "--data-folder",
-        action="store",
-        default=None,
-        help="Path to the data folder for reading inputs"
-    )
 
 
 def _get_project_root() -> Path:
@@ -104,20 +100,35 @@ def _load_config_and_artifacts(data_folder=None):
     return project_root, cfg, cfg_entity_graph, entity_embeddings, entity_context
 
 
-def test_entity_graph_build_smoke(request):
+def test_entity_graph_build_smoke():
     """
-    Smoke test for entity graph construction.
+    Smoke test for entity graph construction on Kaggle.
     
     Validates:
     - Graph can be built from embeddings and context
     - Basic structure and dtypes are correct
     - Node and edge counts are reasonable
     - Save/load round-trip preserves graph structure
+    
+    This is a Kaggle-only test that automatically detects the data folder.
     """
-    # Get data folder from command line option or environment variable
-    data_folder = request.config.getoption("--data-folder")
-    if data_folder is None:
-        data_folder = os.environ.get("DATA_FOLDER", None)
+    # 1) Prefer DATA_FOLDER env var
+    data_folder = os.environ.get("DATA_FOLDER")
+    
+    # 2) Fallback to Kaggle default if env var is not set
+    if not data_folder:
+        kaggle_default = Path("/kaggle/input/flickr30k")
+        if kaggle_default.exists():
+            data_folder = str(kaggle_default)
+    
+    # 3) If still no data_folder, we are not in the expected Kaggle environment
+    if not data_folder:
+        pytest.skip(
+            "DATA_FOLDER not set and /kaggle/input/flickr30k does not exist; "
+            "entity graph smoke test is Kaggle-only."
+        )
+    
+    print(f"[test] Using data folder: {data_folder}")
     
     # Load artifacts
     project_root, cfg, cfg_entity_graph, entity_embeddings, entity_context = _load_config_and_artifacts(data_folder)
