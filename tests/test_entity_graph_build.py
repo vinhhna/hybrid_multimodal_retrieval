@@ -7,11 +7,15 @@ entity_graph.pt artifact. Tests use in-memory graphs or temporary files.
 Run with pytest:
     pytest tests/test_entity_graph_build.py -v
     pytest tests/test_entity_graph_build.py::test_entity_graph_build_smoke -v
+    
+For Kaggle environment:
+    pytest tests/test_entity_graph_build.py -v --data-folder=/kaggle/input/flickr30k
 """
 
 from __future__ import annotations
 
 import json
+import os
 import sys
 import tempfile
 from pathlib import Path
@@ -20,14 +24,27 @@ import pytest
 import torch
 
 
+def pytest_addoption(parser):
+    """Add custom command line options for pytest."""
+    parser.addoption(
+        "--data-folder",
+        action="store",
+        default=None,
+        help="Path to the data folder for reading inputs"
+    )
+
+
 def _get_project_root() -> Path:
     """Resolve project root from test file location."""
     return Path(__file__).resolve().parents[1]
 
 
-def _load_config_and_artifacts():
+def _load_config_and_artifacts(data_folder=None):
     """
     Load configuration and entity artifacts for testing.
+    
+    Args:
+        data_folder: Optional path to data folder. If None, uses project_root.
     
     Returns:
         Tuple of (project_root, cfg, cfg_entity_graph, entity_embeddings, entity_context)
@@ -48,15 +65,33 @@ def _load_config_and_artifacts():
     cfg = load_entity_graph_config(str(config_path))
     cfg_entity_graph = get_entity_graph_config(cfg)
     
+    # Resolve paths
+    if data_folder is not None:
+        base_path = Path(data_folder)
+    else:
+        base_path = project_root
+    
+    embeddings_path_cfg = Path(cfg_entity_graph["entity_embeddings_path"])
+    context_path_cfg = Path(cfg_entity_graph["context_path"])
+    
+    # Use base_path if paths are relative
+    if embeddings_path_cfg.is_absolute():
+        embeddings_path = embeddings_path_cfg
+    else:
+        embeddings_path = base_path / embeddings_path_cfg
+    
+    if context_path_cfg.is_absolute():
+        context_path = context_path_cfg
+    else:
+        context_path = base_path / context_path_cfg
+    
     # Load entity embeddings
-    embeddings_path = project_root / cfg_entity_graph["entity_embeddings_path"]
     if not embeddings_path.exists():
         pytest.skip(f"Entity embeddings not found: {embeddings_path}. Run build_entity_vocabulary first.")
     
     entity_embeddings = torch.load(str(embeddings_path), map_location="cpu")
     
     # Load entity context
-    context_path = project_root / cfg_entity_graph["context_path"]
     if not context_path.exists():
         pytest.skip(f"Entity context not found: {context_path}. Run build_entity_vocabulary first.")
     
@@ -69,7 +104,7 @@ def _load_config_and_artifacts():
     return project_root, cfg, cfg_entity_graph, entity_embeddings, entity_context
 
 
-def test_entity_graph_build_smoke():
+def test_entity_graph_build_smoke(request):
     """
     Smoke test for entity graph construction.
     
@@ -79,8 +114,13 @@ def test_entity_graph_build_smoke():
     - Node and edge counts are reasonable
     - Save/load round-trip preserves graph structure
     """
+    # Get data folder from command line option or environment variable
+    data_folder = request.config.getoption("--data-folder")
+    if data_folder is None:
+        data_folder = os.environ.get("DATA_FOLDER", None)
+    
     # Load artifacts
-    project_root, cfg, cfg_entity_graph, entity_embeddings, entity_context = _load_config_and_artifacts()
+    project_root, cfg, cfg_entity_graph, entity_embeddings, entity_context = _load_config_and_artifacts(data_folder)
     
     from src.graph.build_entity_graph import build_entity_graph, save_entity_graph, load_entity_graph
     
