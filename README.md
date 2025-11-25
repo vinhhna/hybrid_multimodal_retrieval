@@ -218,6 +218,14 @@ for entity_name, stats in list(entity_vocab.items())[:5]:
   - Generated `data/entities/entity_vocab.json` (entity IDs, stats)
   - Generated `data/entities/entity_context.json` (entity→images/captions)
   - Code: `src/graph/entities.py`, `scripts/build_entity_vocabulary.py`
+- **Phase 4 (Day 3-4)**: Entity embeddings & metadata ✅
+  - Implemented CLIP-based entity encoding with configurable templates
+  - Built embeddings for 12,872+ entities (512-dim, L2-normalized)
+  - Generated `data/entities/entity_embeddings.pt` (torch tensor)
+  - Generated `data/entities/entity_meta.json` (entity metadata)
+  - Integrated with `scripts/build_entity_vocabulary.py`
+  - Validation: No NaNs/Infs, mean norm ~1.0
+  - Code: `src/graph/entities.py` (build_entity_embeddings_and_meta, save_entity_embeddings_and_meta)
   
 ### 🚧 What's Next (Phase 4 - In Progress)
 - **Entity graph construction**: Build PyG HeteroData with semantic & co-occurrence edges

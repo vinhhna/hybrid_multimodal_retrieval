@@ -7,70 +7,70 @@ This plan replaces the older image/caption-node design and follows the updated P
 
 ---
 
-## 1. Prereqs & Setup (Day 0)
+## 1. Prereqs & Setup (Day 0) - ✅ Completed
 
-- Confirm the existing codebase is working:
-  - CLIP-only search
-  - Hybrid (CLIP + BLIP-2) search
-  - Evaluation scripts for R@K and MRR
-- Add new config sections:
-  - `entity_graph`: paths, thresholds (min_df, k_sem, degree_cap, etc.)
-  - `query_enrichment`: K_seed_raw, M_enrich, templates, etc.
-  - `graph_search`: K_seed, H_max, B, T_cap_ms, fusion weights
-- Create module skeletons:
-  - `src/graph/entities.py`
-  - `src/graph/build_entity_graph.py`
-  - `src/graph/graph_search.py`
-  - `src/graph/context.py`
-  - `src/graph/config.py` (optional helpers)
+- [x] Confirm the existing codebase is working:
+  - [x] CLIP-only search
+  - [x] Hybrid (CLIP + BLIP-2) search
+  - [x] Evaluation scripts for R@K and MRR
+- [x] Add new config sections:
+  - [x] `entity_graph`: paths, thresholds (min_df, k_sem, degree_cap, etc.)
+  - [x] `query_enrichment`: K_seed_raw, M_enrich, templates, etc.
+  - [x] `graph_search`: K_seed, H_max, B, T_cap_ms, fusion weights
+- [x] Create module skeletons:
+  - [x] `src/graph/entities.py`
+  - [x] `src/graph/build_entity_graph.py`
+  - [x] `src/graph/graph_search.py`
+  - [x] `src/graph/context.py`
+  - [x] `src/graph/config.py` (optional helpers)
 
 ---
 
 ## 2. Week 1 — Entity Extraction & Graph Construction
 
-### Day 1–2: Entity vocabulary & context building
+### Day 1–2: Entity vocabulary & context building - ✅ Completed
 
 **Tasks:**
 
-- Implement `build_entity_vocabulary(dataset, cfg)`:
-  - Iterate over all captions.
-  - Run noun-phrase / entity extraction (e.g. via spaCy or a small POS tagger).
-  - Normalize strings (lowercase, strip punctuation, optional lemmatization).
-  - Count frequencies per entity (image-level and corpus-level).
-  - Filter by `min_df` (e.g. ≥ 5) to avoid ultra-rare entities.
+- [x] Implement `build_entity_vocabulary(dataset, cfg)`:
+  - [x] Iterate over all captions.
+  - [x] Run noun-phrase / entity extraction (e.g. via spaCy or a small POS tagger).
+  - [x] Normalize strings (lowercase, strip punctuation, optional lemmatization).
+  - [x] Count frequencies per entity (image-level and corpus-level).
+  - [x] Filter by `min_df` (e.g. ≥ 5) to avoid ultra-rare entities.
 
-- Build context mappings:
-  - `entity_to_images: Dict[entity_name, Set[image_id]]`
-  - `entity_to_captions: Dict[entity_name, Set[caption_id]]`
+- [x] Build context mappings:
+  - [x] `entity_to_images: Dict[entity_name, Set[image_id]]`
+  - [x] `entity_to_captions: Dict[entity_name, Set[caption_id]]`
 
 **Artifacts:**
 
-- `data/entities/entity_vocab.json` (`entity_name` → stats, IDs)
-- `data/entities/entity_context.json` (`entity_id` → {image_ids, caption_ids})  
+- [x] `data/entities/entity_vocab.json` (`entity_name` → stats, IDs)
+- [x] `data/entities/entity_context.json` (`entity_id` → {image_ids, caption_ids})  
 
 **Acceptance:**
 
-- Vocabulary size printed (reasonable number).
-- Sample entries manually inspected for quality.
+- [x] Vocabulary size printed (reasonable number).
+- [x] Sample entries manually inspected for quality.
 
 ---
 
-### Day 3–4: Entity embeddings & metadata
+### Day 3–4: Entity embeddings & metadata - ✅ Completed
 
 **Tasks:**
 
-- Assign integer IDs to entities: `entity_name → entity_id`.
-- Encode each entity name with CLIP text encoder:
-  - Optionally use a template like `"a photo of {entity_name}"`.
-  - L2-normalize embeddings.
-- Save:
-  - `entity_embeddings.pt` (tensor `[N_entities, d_model]`)
-  - `entity_meta.json` (`entity_id → {name, df, cf}`)
+- [x] Assign integer IDs to entities: `entity_name → entity_id`.
+- [x] Encode each entity name with CLIP text encoder:
+  - [x] Optionally use a template like `"a photo of {entity_name}"`.
+  - [x] L2-normalize embeddings.
+- [x] Save:
+  - [x] `entity_embeddings.pt` (tensor `[N_entities, d_model]`)
+  - [x] `entity_meta.json` (`entity_id → {name, df, cf}`)
 
 **Acceptance:**
 
-- No NaNs/Infs in embeddings.
-- Basic stats printed: mean norm, distribution checks.
+- [x] No NaNs/Infs in embeddings.
+- [x] Basic stats printed: mean norm, distribution checks.
 
 ---
 
