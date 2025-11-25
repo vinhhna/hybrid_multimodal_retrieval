@@ -56,8 +56,8 @@ def main() -> None:
     parser.add_argument(
         "--output-folder",
         type=str,
-        default="/kaggle/working",
-        help="Path to the output folder for saving graph (default: /kaggle/working)"
+        default="/kaggle/working/hybrid_multimodal_retrieval/data/graph",
+        help="Path to the output folder for saving graph (default: /kaggle/working/hybrid_multimodal_retrieval/data/graph)"
     )
     args = parser.parse_args()
     
