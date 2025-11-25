@@ -513,7 +513,7 @@ def load_entity_graph(path: Union[str, Path]) -> HeteroData:
         raise FileNotFoundError(f"Graph file not found: {path}")
     
     print(f"\n  Loading graph from: {path}")
-    data = torch.load(str(path), map_location="cpu")
+    data = torch.load(str(path), map_location="cpu", weights_only=False)
     
     # Print summary
     num_entities = data["entity"].x.size(0)
