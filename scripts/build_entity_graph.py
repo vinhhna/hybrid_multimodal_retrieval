@@ -15,10 +15,11 @@ Usage (from repo root):
     python -m scripts.build_entity_graph [--data-folder PATH]
 
 Arguments:
-    --data-folder PATH    Path to the data folder (default: /kaggle/input/flickr30k/data)
+    --data-folder PATH     Path to the data folder for reading inputs (default: /kaggle/input/flickr30k)
+    --output-folder PATH   Path to the output folder for saving graph (default: /kaggle/working)
 
 Output:
-    - data/graph/entity_graph.pt (or path from config)
+    - {output-folder}/entity_graph.pt (or path from config)
     
 For testing the graph construction logic, use:
     pytest tests/test_entity_graph_build.py
@@ -49,12 +50,19 @@ def main() -> None:
     parser.add_argument(
         "--data-folder",
         type=str,
-        default="/kaggle/input/flickr30k/data",
-        help="Path to the data folder (default: /kaggle/input/flickr30k/data)"
+        default="/kaggle/input/flickr30k",
+        help="Path to the data folder for reading inputs (default: /kaggle/input/flickr30k)"
+    )
+    parser.add_argument(
+        "--output-folder",
+        type=str,
+        default="/kaggle/working",
+        help="Path to the output folder for saving graph (default: /kaggle/working)"
     )
     args = parser.parse_args()
     
     data_folder = Path(args.data_folder)
+    output_folder = Path(args.output_folder)
     
     # Resolve project root and add to path
     project_root = Path(__file__).resolve().parent.parent
@@ -67,8 +75,9 @@ def main() -> None:
     print("=" * 70)
     print("ENTITY GRAPH BUILDER - PHASE 4 DAY 5-7")
     print("=" * 70)
-    print(f"\n[Data Folder]")
-    print(f"  Using data folder: {data_folder}")
+    print(f"\n[Paths]")
+    print(f"  Input data folder: {data_folder}")
+    print(f"  Output folder: {output_folder}")
     
     # Load configuration
     config_path = project_root / "configs" / "entity_graph.yaml"
@@ -86,12 +95,12 @@ def main() -> None:
     print(f"    k_sem: {cfg_entity_graph['k_sem']}")
     print(f"    degree_cap: {cfg_entity_graph['degree_cap']}")
     
-    # Resolve artifact paths (use data_folder if not absolute paths)
+    # Resolve artifact paths
     embeddings_path_cfg = Path(cfg_entity_graph["entity_embeddings_path"])
     context_path_cfg = Path(cfg_entity_graph["context_path"])
     graph_path_cfg = Path(cfg_entity_graph["entity_graph_path"])
     
-    # Use data_folder as base if paths are relative
+    # Input paths: use data_folder as base if paths are relative
     if embeddings_path_cfg.is_absolute():
         embeddings_path = embeddings_path_cfg
     else:
@@ -102,10 +111,15 @@ def main() -> None:
     else:
         context_path = data_folder / context_path_cfg
     
+    # Output path: use output_folder as base if path is relative
     if graph_path_cfg.is_absolute():
         graph_path = graph_path_cfg
     else:
-        graph_path = data_folder / graph_path_cfg
+        # Use only the filename from config, save to output_folder
+        graph_path = output_folder / graph_path_cfg.name
+    
+    # Ensure output directory exists
+    graph_path.parent.mkdir(parents=True, exist_ok=True)
     
     # Check prerequisites
     if not embeddings_path.exists():
