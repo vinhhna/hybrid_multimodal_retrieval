@@ -21,7 +21,7 @@ entity_graph:
   context_path: "data/entities/entity_context.json"
   entity_embeddings_path: "data/entities/entity_embeddings.pt"
   entity_meta_path: "data/entities/entity_meta.json"
-  entity_graph_path: "data/entities/entity_graph.pt"
+  entity_graph_path: "data/graph/entity_graph.pt"
 
   # Entity embedding generation (Phase 4 Day 3-4)
   # Toggle to enable/disable entity embedding generation
