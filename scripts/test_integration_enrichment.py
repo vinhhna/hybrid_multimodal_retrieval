@@ -27,13 +27,13 @@ def create_mock_components():
     
     # Mock BiEncoder
     bi_encoder = MagicMock()
-    bi_encoder.encode_texts = lambda texts, normalize=True, show_progress=False: (
+    bi_encoder.encode_texts = lambda texts, batch_size=None, normalize=True, show_progress=False: (
         torch.nn.functional.normalize(
             torch.randn(len(texts), 512, dtype=torch.float32),
             p=2, dim=-1
         ).numpy()
     )
-    bi_encoder.encode_images = lambda images, normalize=True, show_progress=False: (
+    bi_encoder.encode_images = lambda images, batch_size=None, normalize=True, show_progress=False: (
         torch.nn.functional.normalize(
             torch.randn(len(images), 512, dtype=torch.float32),
             p=2, dim=-1
