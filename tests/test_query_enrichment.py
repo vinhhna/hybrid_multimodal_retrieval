@@ -194,10 +194,10 @@ def test_collect_candidate_entities(synthetic_entity_context):
     # img_0 -> entities 0, 2
     # img_1 -> entities 0, 1
     # img_2 -> entities 1, 2
-    # So: entity 0 appears 2 times, entity 1 appears 2 times, entity 2 appears 3 times
+    # So: entity 0 appears 2 times, entity 1 appears 2 times, entity 2 appears 2 times
     assert freq[0] == 2
     assert freq[1] == 2
-    assert freq[2] == 3
+    assert freq[2] == 2
 
 
 def test_score_entities(synthetic_entity_embeddings):
