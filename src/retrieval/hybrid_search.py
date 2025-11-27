@@ -1344,6 +1344,115 @@ class HybridSearchEngine:
             f"{cache_info}"
             f")"
         )
+    
+    # ============================================================================
+    # Phase 4: Graph-based search with query enrichment
+    # ============================================================================
+    
+    def text_to_image_graph_search(
+        self,
+        query: str,
+        entity_context: Optional[Dict[int, Dict[str, Any]]] = None,
+        phase4_config: Optional[Dict[str, Any]] = None,
+        k1: Optional[int] = None,
+        k2: Optional[int] = None,
+        show_progress: Optional[bool] = None
+    ) -> List[Tuple[str, float]]:
+        """
+        Perform graph-based text-to-image search with query enrichment (Phase 4).
+        
+        This is the entry point for Phase 4 entity-centric retrieval. When query
+        enrichment is enabled, it:
+        1. Performs CLIP search to get seed images (Stage 1)
+        2. Calls enrich_query to expand query with entities
+        3. Uses enriched query for downstream retrieval
+        
+        For now, this is a stub that performs basic enrichment and falls back
+        to hybrid search. Full graph search will be implemented in later days.
+        
+        Args:
+            query: Text query string
+            entity_context: Entity context mapping (entity_id -> {entity, image_ids, caption_ids})
+            phase4_config: Phase 4 configuration (entity_graph.yaml structure)
+            k1: Number of Stage 1 candidates (default: from config)
+            k2: Number of final results (default: from config)
+            show_progress: Show progress bars (default: from config)
+        
+        Returns:
+            List of (image_id, score) tuples
+        """
+        # Import here to avoid circular dependency
+        try:
+            from ..graph.graph_search import enrich_query
+            from ..graph.config import get_query_enrichment_config
+        except ImportError:
+            import sys
+            sys.path.append('..')
+            from graph.graph_search import enrich_query
+            from graph.config import get_query_enrichment_config
+        
+        # Use defaults if not provided
+        k1 = k1 or self.config['k1']
+        k2 = k2 or self.config['k2']
+        show_progress = show_progress if show_progress is not None else self.config['show_progress']
+        
+        # Check if query enrichment is enabled
+        if phase4_config is None:
+            print("Warning: phase4_config not provided, skipping query enrichment")
+            return self.text_to_image_hybrid_search(query, k1=k1, k2=k2, show_progress=show_progress)
+        
+        enrichment_cfg = get_query_enrichment_config(phase4_config)
+        
+        if not enrichment_cfg.get('enabled', False):
+            print("Query enrichment disabled, using standard hybrid search")
+            return self.text_to_image_hybrid_search(query, k1=k1, k2=k2, show_progress=show_progress)
+        
+        if entity_context is None:
+            print("Warning: entity_context not provided, skipping query enrichment")
+            return self.text_to_image_hybrid_search(query, k1=k1, k2=k2, show_progress=show_progress)
+        
+        # Stage 1: Get CLIP seeds for enrichment
+        print(f"[Graph Mode] Query enrichment enabled (K_seed={enrichment_cfg.get('K_seed_raw', 32)})")
+        K_seed_raw = enrichment_cfg.get('K_seed_raw', 32)
+        
+        candidates = self._stage1_retrieve(
+            query=query,
+            k1=K_seed_raw,
+            show_progress=False
+        )
+        
+        # Enrich query with entities from seeds
+        try:
+            enrichment_result = enrich_query(
+                query=query,
+                seeds=candidates,
+                encoders=self.bi_encoder,
+                entity_context=entity_context,
+                cfg=phase4_config
+            )
+            
+            print(f"Query enriched with {len(enrichment_result.entity_names)} entities: "
+                  f"{', '.join(enrichment_result.entity_names[:5])}"
+                  f"{'...' if len(enrichment_result.entity_names) > 5 else ''}")
+            
+            # Use enriched query for downstream search
+            enriched_query = enrichment_result.enriched_query
+            
+        except Exception as e:
+            print(f"Warning: Query enrichment failed: {e}")
+            print("Falling back to original query")
+            enriched_query = query
+        
+        # Perform hybrid search with enriched query
+        # TODO: In future days, integrate with full graph search
+        results = self.text_to_image_hybrid_search(
+            query=enriched_query,
+            k1=k1,
+            k2=k2,
+            show_progress=show_progress
+        )
+        
+        return results
 
 
 if __name__ == "__main__":

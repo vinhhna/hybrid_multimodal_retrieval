@@ -18,8 +18,16 @@ Full implementation: Later days (Week 2)
 
 from __future__ import annotations
 
+import collections
+import json
+import logging
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple, Set
+
+import numpy as np
+import torch
+import torch.nn.functional as F
 
 
 # ============================================================================
@@ -32,13 +40,21 @@ class EnrichmentResult:
     Result of query enrichment.
 
     Attributes:
-        query_original: Original query string provided by the user.
-        query_enriched: Enriched query string with entity names appended.
-        entities: List of entity IDs selected for enrichment.
+        original_query: Original query string provided by the user.
+        enriched_query: Enriched query string with entity names appended.
+        q0: Original query embedding from CLIP (shape [512] or [1, 512]).
+        q_enriched: Enriched query embedding from CLIP (shape [512] or [1, 512]).
+        entity_ids: List of entity IDs selected for enrichment.
+        entity_names: List of human-readable entity names.
+        entity_scores: Tensor of scores for selected entities (shape [num_entities]).
     """
-    query_original: str
-    query_enriched: str
-    entities: List[int]  # entity IDs
+    original_query: str
+    enriched_query: str
+    q0: torch.Tensor
+    q_enriched: torch.Tensor
+    entity_ids: List[int]
+    entity_names: List[str]
+    entity_scores: torch.Tensor
 
 
 @dataclass
@@ -63,60 +79,404 @@ class GraphSearchResult:
 # Query enrichment
 # ============================================================================
 
+# Module-level caches for lazy loading
+_entity_embeddings_cache: Optional[torch.Tensor] = None
+_entity_meta_cache: Optional[Dict[int, Dict[str, Any]]] = None
+_reverse_index_cache: Optional[Tuple[Dict[str, Set[int]], Dict[str, Set[int]]]] = None
+
+logger = logging.getLogger(__name__)
+
+
+def _l2_normalize(x: torch.Tensor) -> torch.Tensor:
+    """
+    L2-normalize a tensor along the last dimension.
+    
+    Args:
+        x: Tensor of shape [d] or [N, d]
+    
+    Returns:
+        L2-normalized tensor of same shape
+    """
+    if x.ndim == 1:
+        x = x.unsqueeze(0)
+        normalized = F.normalize(x, p=2, dim=-1)
+        return normalized.squeeze(0)
+    return F.normalize(x, p=2, dim=-1)
+
+
+def _load_entity_embeddings(cfg: Dict[str, Any]) -> torch.Tensor:
+    """
+    Lazy-load entity embeddings from disk and cache at module level.
+    
+    Args:
+        cfg: Configuration dictionary with entity_graph section
+    
+    Returns:
+        Entity embeddings tensor of shape [N_entities, 512]
+    """
+    global _entity_embeddings_cache
+    
+    if _entity_embeddings_cache is None:
+        entity_cfg = cfg.get("entity_graph", {})
+        embeddings_path = entity_cfg.get("entity_embeddings_path", "data/entities/entity_embeddings.pt")
+        embeddings_path = Path(embeddings_path)
+        
+        if not embeddings_path.exists():
+            raise FileNotFoundError(f"Entity embeddings not found: {embeddings_path}")
+        
+        logger.info(f"Loading entity embeddings from {embeddings_path}")
+        _entity_embeddings_cache = torch.load(embeddings_path, map_location='cpu')
+        logger.info(f"Loaded {_entity_embeddings_cache.shape[0]} entity embeddings")
+    
+    return _entity_embeddings_cache
+
+
+def _load_entity_meta(cfg: Dict[str, Any]) -> Dict[int, Dict[str, Any]]:
+    """
+    Lazy-load entity metadata from disk and cache at module level.
+    
+    Args:
+        cfg: Configuration dictionary with entity_graph section
+    
+    Returns:
+        Dictionary mapping entity_id (int) to metadata dict
+    """
+    global _entity_meta_cache
+    
+    if _entity_meta_cache is None:
+        entity_cfg = cfg.get("entity_graph", {})
+        meta_path = entity_cfg.get("entity_meta_path", "data/entities/entity_meta.json")
+        meta_path = Path(meta_path)
+        
+        if not meta_path.exists():
+            raise FileNotFoundError(f"Entity metadata not found: {meta_path}")
+        
+        logger.info(f"Loading entity metadata from {meta_path}")
+        with open(meta_path, 'r', encoding='utf-8') as f:
+            raw_meta = json.load(f)
+        
+        # Convert string keys to int
+        _entity_meta_cache = {int(k): v for k, v in raw_meta.items()}
+        logger.info(f"Loaded metadata for {len(_entity_meta_cache)} entities")
+    
+    return _entity_meta_cache
+
+
+def _build_reverse_index(entity_context: Dict[int, Dict[str, Any]]) -> Tuple[Dict[str, Set[int]], Dict[str, Set[int]]]:
+    """
+    Build reverse indices mapping image_id/caption_id to entity_ids.
+    
+    Cached at module level for reuse across queries.
+    
+    Args:
+        entity_context: Mapping from entity_id to dict with image_ids and caption_ids
+    
+    Returns:
+        Tuple of (image_to_entities, caption_to_entities) dicts
+    """
+    global _reverse_index_cache
+    
+    if _reverse_index_cache is None:
+        logger.info("Building reverse index from entity_context")
+        image_to_entities: Dict[str, Set[int]] = collections.defaultdict(set)
+        caption_to_entities: Dict[str, Set[int]] = collections.defaultdict(set)
+        
+        for entity_id, context in entity_context.items():
+            # Handle both string and int keys
+            eid = int(entity_id) if not isinstance(entity_id, int) else entity_id
+            
+            for img_id in context.get("image_ids", []):
+                image_to_entities[str(img_id)].add(eid)
+            
+            for cap_id in context.get("caption_ids", []):
+                caption_to_entities[str(cap_id)].add(eid)
+        
+        _reverse_index_cache = (dict(image_to_entities), dict(caption_to_entities))
+        logger.info(f"Built reverse index: {len(image_to_entities)} images, {len(caption_to_entities)} captions")
+    
+    return _reverse_index_cache
+
+
+def _collect_candidate_entities(
+    seeds: List[Tuple[str, float]],
+    image_to_entities: Dict[str, Set[int]],
+    caption_to_entities: Dict[str, Set[int]]
+) -> Dict[int, int]:
+    """
+    Collect candidate entities from CLIP search seeds and count frequencies.
+    
+    Note: Currently only image_to_entities is used because seeds are image-based.
+    caption_to_entities is kept for future caption-aware seeds support.
+    
+    Args:
+        seeds: List of (image_id, score) tuples from CLIP search
+        image_to_entities: Reverse index mapping image_id to entity_ids
+        caption_to_entities: Reverse index mapping caption_id to entity_ids (kept for future use)
+    
+    Returns:
+        Dictionary mapping entity_id to frequency count in seeds
+    """
+    freq = collections.Counter()
+    
+    for image_id, _score in seeds:
+        image_id_str = str(image_id)
+        for eid in image_to_entities.get(image_id_str, []):
+            freq[eid] += 1
+    
+    return dict(freq)
+
+
+def _score_entities(
+    q0: torch.Tensor,
+    entity_ids: List[int],
+    entity_embeddings: torch.Tensor,
+    freq: Dict[int, int],
+    w_freq: float,
+    w_sim: float
+) -> Dict[int, float]:
+    """
+    Score candidate entities by combining frequency and similarity.
+    
+    Args:
+        q0: Query embedding [512] or [1, 512], L2-normalized
+        entity_ids: List of candidate entity IDs
+        entity_embeddings: All entity embeddings [N_entities, 512]
+        freq: Frequency count for each entity_id
+        w_freq: Weight for frequency score
+        w_sim: Weight for similarity score
+    
+    Returns:
+        Dictionary mapping entity_id to combined score
+    """
+    if not entity_ids:
+        return {}
+    
+    # Ensure q0 is 1D
+    if q0.ndim == 2:
+        q0 = q0.squeeze(0)
+    
+    # Get embeddings for candidate entities
+    idx = torch.tensor(entity_ids, dtype=torch.long, device=entity_embeddings.device)
+    emb = entity_embeddings[idx]  # [num_candidates, 512]
+    
+    # Compute cosine similarities (dot product since both are L2-normalized)
+    sims = (emb @ q0.to(emb.device)).cpu()  # [num_candidates]
+    
+    # Normalize frequency scores
+    freq_vals = torch.tensor([freq[eid] for eid in entity_ids], dtype=torch.float32)
+    freq_max = freq_vals.max().clamp_min(1.0)
+    freq_norm = freq_vals / freq_max
+    
+    # Normalize similarity scores to [0, 1]
+    sims_min = sims.min()
+    sims_max = sims.max()
+    sims_range = sims_max - sims_min
+    if sims_range > 1e-8:
+        sims_norm = (sims - sims_min) / sims_range
+    else:
+        sims_norm = torch.zeros_like(sims)
+    
+    # Combine scores
+    scores = w_freq * freq_norm + w_sim * sims_norm
+    
+    return {eid: float(score) for eid, score in zip(entity_ids, scores)}
+
+
+def _top_k_entities(scored_entities: Dict[int, float], k: int) -> Tuple[List[int], List[float]]:
+    """
+    Select top-k entities by score with deterministic tie-breaking.
+    
+    Args:
+        scored_entities: Dictionary mapping entity_id to score
+        k: Number of entities to select
+    
+    Returns:
+        Tuple of (entity_ids, scores) for top-k entities
+    """
+    if not scored_entities:
+        return [], []
+    
+    # Sort by score (descending), then by entity_id (ascending) for determinism
+    sorted_items = sorted(scored_entities.items(), key=lambda kv: (-kv[1], kv[0]))
+    top = sorted_items[:k]
+    
+    if not top:
+        return [], []
+    
+    entity_ids, entity_scores = zip(*top)
+    return list(entity_ids), list(entity_scores)
+
+
+def _log_enrichment(result: EnrichmentResult, cfg: Dict[str, Any]) -> None:
+    """
+    Log enrichment results for debugging and inspection.
+    
+    Args:
+        result: EnrichmentResult to log
+        cfg: Configuration dictionary with query_enrichment section
+    """
+    enrichment_cfg = cfg.get("query_enrichment", {})
+    log_examples = enrichment_cfg.get("log_examples", False)
+    
+    if not log_examples:
+        return
+    
+    logger.info("=" * 70)
+    logger.info("Query Enrichment")
+    logger.info("=" * 70)
+    logger.info(f"Original: {result.original_query}")
+    logger.info(f"Enriched: {result.enriched_query}")
+    logger.info(f"Entities ({len(result.entity_names)}): {', '.join(result.entity_names)}")
+    
+    # Log top entity scores (truncate to 10)
+    if len(result.entity_ids) > 0:
+        logger.info("Top entity scores:")
+        for i, (eid, name, score) in enumerate(zip(
+            result.entity_ids[:10],
+            result.entity_names[:10],
+            result.entity_scores[:10].tolist()
+        )):
+            logger.info(f"  {i+1}. {name} (id={eid}, score={score:.4f})")
+    logger.info("=" * 70)
+
+
 def enrich_query(
     query: str,
-    dataset: Any,
+    seeds: List[Tuple[str, float]],
     encoders: Any,
     entity_context: Dict[int, Dict[str, Any]],
     cfg: Dict[str, Any],
 ) -> EnrichmentResult:
     """
-    Enrich a query by selecting top entities from CLIP search results.
+    Enrich a query by selecting top entities from pre-computed CLIP search seeds.
 
-    This is a skeleton for later implementation (Week 2 of Phase 4 plan).
+    This is the canonical query enrichment function for Phase 4. It expects CLIP
+    search seeds (image results) to be provided by the caller (e.g., from Stage 1
+    retrieval in hybrid_search.py).
 
-    Algorithm outline (for future implementation):
+    Algorithm:
       1. Encode original query with CLIP text encoder → q0 (embedding).
-      2. Run CLIP search over captions/images to get top K_seed_raw results.
-      3. Collect candidate entities from these results using entity_context.
+      2. Use provided CLIP search seeds (top K_seed_raw image results).
+      3. Collect candidate entities from these seeds using entity_context.
       4. Score entities by:
          - Frequency in the K_seed_raw results.
          - Cosine similarity of entity embeddings to q0.
       5. Select top M_enrich entities.
       6. Build enriched query text using templates from cfg["query_enrichment"]:
          - For text queries: "{query}. Related: {entities}"
-         - For image queries: "photo of {entities}"
-      7. Return EnrichmentResult with original query, enriched query, and entity list.
+         - For image queries (future): "photo of {entities}"
+      7. Encode enriched text with CLIP → q_enriched.
+      8. Return EnrichmentResult with all details.
 
     Args:
         query: Original user query string.
-        dataset: Flickr30K dataset instance (for CLIP search).
-        encoders: Encoder module (CLIP model) for encoding query and entities.
+        seeds: List of (image_id, score) tuples from CLIP search (pre-computed by caller).
+        encoders: BiEncoder instance (CLIP model) for encoding query and enriched text.
         entity_context: Mapping from entity_id to dict with:
                         {"entity": str, "image_ids": List[str], "caption_ids": List[str]}
         cfg: Configuration dictionary. Use cfg["query_enrichment"] for parameters:
-             - K_seed_raw: number of CLIP results to use for seeding
              - M_enrich: number of entities to select
+             - w_freq: weight for frequency score
+             - w_sim: weight for similarity score
              - text_template, image_template: enrichment templates
+             - log_examples: whether to log results
 
     Returns:
-        EnrichmentResult with original query, enriched query, and selected entities.
-
-    Raises:
-        NotImplementedError: This is a skeleton; full implementation in later days.
-
-    TODO(phase4-entity): Implement in Week 2 (Day 10-12)
-      - Encode query with CLIP text encoder
-      - Run CLIP search (top K_seed_raw captions/images)
-      - Collect candidate entities from results
-      - Score entities by frequency + embedding similarity to query
-      - Select top M_enrich entities
-      - Build enriched query text using templates
-      - Return EnrichmentResult
+        EnrichmentResult with original query, enriched query, embeddings, and selected entities.
     """
-    raise NotImplementedError(
-        "Phase 4 - enrich_query: to be implemented in later days (Week 2, Day 10-12)."
+    # Load configuration
+    enrichment_cfg = cfg.get("query_enrichment", {})
+    M_enrich = enrichment_cfg.get("M_enrich", 8)
+    w_freq = enrichment_cfg.get("w_freq", 0.5)
+    w_sim = enrichment_cfg.get("w_sim", 0.5)
+    text_template = enrichment_cfg.get("text_template", "{query}. Related: {entities}")
+    
+    # Step 1: Encode original query
+    logger.debug(f"Encoding original query: {query}")
+    q0_np = encoders.encode_texts([query], normalize=True, show_progress=False)
+    q0 = torch.from_numpy(q0_np).squeeze(0)  # [512]
+    
+    # Step 2: Build reverse index (cached)
+    image_to_entities, caption_to_entities = _build_reverse_index(entity_context)
+    
+    # Step 3: Collect candidate entities from seeds
+    logger.debug(f"Collecting candidate entities from {len(seeds)} seeds")
+    freq = _collect_candidate_entities(seeds, image_to_entities, caption_to_entities)
+    
+    if not freq:
+        # No entities found in seeds, return original query
+        logger.debug("No candidate entities found in seeds")
+        enriched_query = query
+        q_enriched = q0.clone()
+        
+        result = EnrichmentResult(
+            original_query=query,
+            enriched_query=enriched_query,
+            q0=q0,
+            q_enriched=q_enriched,
+            entity_ids=[],
+            entity_names=[],
+            entity_scores=torch.tensor([], dtype=torch.float32)
+        )
+        _log_enrichment(result, cfg)
+        return result
+    
+    # Step 4: Score entities by frequency + similarity
+    entity_embeddings = _load_entity_embeddings(cfg)
+    entity_meta = _load_entity_meta(cfg)
+    
+    candidate_ids = list(freq.keys())
+    logger.debug(f"Scoring {len(candidate_ids)} candidate entities")
+    scored_entities = _score_entities(q0, candidate_ids, entity_embeddings, freq, w_freq, w_sim)
+    
+    # Step 5: Select top M_enrich entities
+    top_entity_ids, top_scores = _top_k_entities(scored_entities, M_enrich)
+    
+    if not top_entity_ids:
+        # No entities selected, return original query
+        logger.debug("No entities selected after scoring")
+        enriched_query = query
+        q_enriched = q0.clone()
+        
+        result = EnrichmentResult(
+            original_query=query,
+            enriched_query=enriched_query,
+            q0=q0,
+            q_enriched=q_enriched,
+            entity_ids=[],
+            entity_names=[],
+            entity_scores=torch.tensor([], dtype=torch.float32)
+        )
+        _log_enrichment(result, cfg)
+        return result
+    
+    # Get entity names from metadata
+    entity_names = [entity_meta[eid].get("entity", f"entity_{eid}") for eid in top_entity_ids]
+    
+    # Step 6: Build enriched query text
+    entities_str = ", ".join(entity_names)
+    enriched_query = text_template.format(query=query.strip(), entities=entities_str)
+    logger.debug(f"Enriched query: {enriched_query}")
+    
+    # Step 7: Encode enriched query
+    q_enriched_np = encoders.encode_texts([enriched_query], normalize=True, show_progress=False)
+    q_enriched = torch.from_numpy(q_enriched_np).squeeze(0)  # [512]
+    
+    # Step 8: Return EnrichmentResult
+    entity_scores = torch.tensor(top_scores, dtype=torch.float32)
+    
+    result = EnrichmentResult(
+        original_query=query,
+        enriched_query=enriched_query,
+        q0=q0,
+        q_enriched=q_enriched,
+        entity_ids=top_entity_ids,
+        entity_names=entity_names,
+        entity_scores=entity_scores
     )
+    
+    _log_enrichment(result, cfg)
+    return result
 
 
 # ============================================================================

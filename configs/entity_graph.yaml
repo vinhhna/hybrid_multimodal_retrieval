@@ -53,10 +53,19 @@ query_enrichment:
   enabled: true
 
   # K_seed_raw: number of top CLIP results to use for seeding entity enrichment
-  K_seed_raw: 100
+  K_seed_raw: 32
 
   # M_enrich: number of top entities to select for query enrichment
-  M_enrich: 5
+  M_enrich: 8
+
+  # Scoring weights for entity selection
+  # w_freq: weight for frequency-based score (entities appearing in more seeds)
+  w_freq: 0.5
+  # w_sim: weight for similarity-based score (cosine similarity to query)
+  w_sim: 0.5
+
+  # Enable logging of enriched queries and entities for debugging
+  log_examples: true
 
   # Template for enriched text query
   # Placeholder {query} will be replaced with original query

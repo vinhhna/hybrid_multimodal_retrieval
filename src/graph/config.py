@@ -83,7 +83,7 @@ def get_entity_graph_config(cfg: Dict[str, Any]) -> Dict[str, Any]:
         "context_path": entity_cfg.get("context_path", "data/entities/entity_context.json"),
         "entity_embeddings_path": entity_cfg.get("entity_embeddings_path", "data/entities/entity_embeddings.pt"),
         "entity_meta_path": entity_cfg.get("entity_meta_path", "data/entities/entity_meta.json"),
-        "entity_graph_path": entity_cfg.get("entity_graph_path", "data/entities/entity_graph.pt"),
+        "entity_graph_path": entity_cfg.get("entity_graph_path", "data/graph/entity_graph.pt"),
         "build_entity_embeddings": entity_cfg.get("build_entity_embeddings", False),
         "entity_text_template": entity_cfg.get("entity_text_template", "{}"),
         "batch_size": entity_cfg.get("batch_size", 64),
@@ -106,8 +106,11 @@ def get_query_enrichment_config(cfg: Dict[str, Any]) -> Dict[str, Any]:
     
     return {
         "enabled": enrichment_cfg.get("enabled", True),
-        "K_seed_raw": enrichment_cfg.get("K_seed_raw", 100),
-        "M_enrich": enrichment_cfg.get("M_enrich", 5),
+        "K_seed_raw": enrichment_cfg.get("K_seed_raw", 32),
+        "M_enrich": enrichment_cfg.get("M_enrich", 8),
+        "w_freq": enrichment_cfg.get("w_freq", 0.5),
+        "w_sim": enrichment_cfg.get("w_sim", 0.5),
+        "log_examples": enrichment_cfg.get("log_examples", False),
         "text_template": enrichment_cfg.get("text_template", "{query}. Related: {entities}"),
         "image_template": enrichment_cfg.get("image_template", "photo of {entities}"),
     }
