@@ -78,12 +78,19 @@ def test_build_adjacency():
     
     # Check semantic edges
     assert len(adj["sem"][0]) == 2  # Entity 0 has 2 outgoing semantic edges
-    assert (1, 0.8) in adj["sem"][0]
-    assert (2, 0.6) in adj["sem"][0]
+    # Check node IDs and approximate weights (float32 precision)
+    sem_nodes = {node for node, _ in adj["sem"][0]}
+    assert 1 in sem_nodes and 2 in sem_nodes
+    sem_weights = {node: weight for node, weight in adj["sem"][0]}
+    assert abs(sem_weights[1] - 0.8) < 1e-6
+    assert abs(sem_weights[2] - 0.6) < 1e-6
     
     # Check co-occurrence edges
     assert len(adj["cooc"][1]) == 1  # Entity 1 has 1 outgoing cooc edge
-    assert (2, 0.5) in adj["cooc"][1]
+    cooc_nodes = {node for node, _ in adj["cooc"][1]}
+    assert 2 in cooc_nodes
+    cooc_weights = {node: weight for node, weight in adj["cooc"][1]}
+    assert abs(cooc_weights[2] - 0.5) < 1e-6
 
 
 def test_expand_frontier_respects_hmax():
@@ -244,7 +251,8 @@ def test_graph_search_integration():
     }
     
     # Mock the module-level caches
-    import src.graph.graph_search as gs_module
+    # Import the module itself (not the function)
+    from src.graph import graph_search as gs_module
     
     # Save original caches
     orig_context = gs_module._entity_context_cache
