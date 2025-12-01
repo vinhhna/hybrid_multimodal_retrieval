@@ -74,114 +74,114 @@ This plan replaces the older image/caption-node design and follows the updated P
 
 ---
 
-### Day 5–7: Build entity graph (semantic + co-occurrence edges)
+### Day 5–7: Build entity graph (semantic + co-occurrence edges) - ✅ Completed
 
 **Tasks:**
 
-- **Semantic edges:**
-  - Use FAISS or batched dot products to compute top-`k_sem` neighbors per entity.
-  - Edge weight = cosine similarity.
-  - Degree-cap to avoid hubs.
+- [x] **Semantic edges:**
+  - [x] Use FAISS or batched dot products to compute top-`k_sem` neighbors per entity.
+  - [x] Edge weight = cosine similarity.
+  - [x] Degree-cap to avoid hubs.
 
-- **Co-occurrence edges:**
-  - For each image (or caption), get its entities.
-  - For each pair `(e_i, e_j)`:
-    - Add/accumulate a co-occurrence weight.
-  - Normalize weights (optional: PMI or scaled counts).
-  - Degree-cap.
+- [x] **Co-occurrence edges:**
+  - [x] For each image (or caption), get its entities.
+  - [x] For each pair `(e_i, e_j)`:
+    - [x] Add/accumulate a co-occurrence weight.
+  - [x] Normalize weights (optional: PMI or scaled counts).
+  - [x] Degree-cap.
 
-- Pack into PyTorch Geometric `HeteroData`:
-  - `data["entity"].x = entity_embeddings`
-  - `("entity", "sem", "entity").edge_index / edge_weight`
-  - `("entity", "cooc", "entity").edge_index / edge_weight`
+- [x] Pack into PyTorch Geometric `HeteroData`:
+  - [x] `data["entity"].x = entity_embeddings`
+  - [x] `("entity", "sem", "entity").edge_index / edge_weight`
+  - [x] `("entity", "cooc", "entity").edge_index / edge_weight`
 
-- Implement `save_entity_graph(data, path)` / `load_entity_graph(path)`.
+- [x] Implement `save_entity_graph(data, path)` / `load_entity_graph(path)`.
 
 **Artifacts:**
 
-- `data/graph/entity_graph.pt` (PyG HeteroData)
-- `data/graph/entity_meta.json`, `entity_context.json`
+- [x] `data/graph/entity_graph.pt` (PyG HeteroData)
+- [x] `data/graph/entity_meta.json`, `entity_context.json`
 
 **Acceptance:**
 
-- Quick size/memory report.
-- Degree distribution sanity-check.
-- Load/reload smoke test.
+- [x] Quick size/memory report.
+- [x] Degree distribution sanity-check.
+- [x] Load/reload smoke test.
 
 ---
 
 ## 3. Week 2 — Query Enrichment & Graph Search
 
-### Day 8–9: Query enrichment (mandatory pipeline)
+### Day 8–9: Query enrichment (mandatory pipeline) - ✅ Completed
 
 **Tasks:**
 
-- Implement `enrich_query(query, dataset, encoders, entity_context, cfg)`:
+- [x] Implement `enrich_query(query, dataset, encoders, entity_context, cfg)`:
 
-  1. Encode original query with CLIP → `q0`.
-  2. CLIP search over captions/images → top-`K_seed_raw`.
-  3. Collect candidate entities from those seeds (via `entity_context`).
-  4. Score entities by:
-     - frequency in seeds
-     - similarity between entity embedding and `q0`
-  5. Select top-`M_enrich` entities.
-  6. Build enriched text:
-     - For text query: `f"{query}. Related: {e1}, {e2}, ..."`
-     - For image query: `"photo of e1, e2, e3, ..."`
-  7. Encode enriched text with CLIP → `q_enriched`.
+  1. [x] Encode original query with CLIP → `q0`.
+  2. [x] CLIP search over captions/images → top-`K_seed_raw`.
+  3. [x] Collect candidate entities from those seeds (via `entity_context`).
+  4. [x] Score entities by:
+     - [x] frequency in seeds
+     - [x] similarity between entity embedding and `q0`
+  5. [x] Select top-`M_enrich` entities.
+  6. [x] Build enriched text:
+     - [x] For text query: `f"{query}. Related: {e1}, {e2}, ..."`
+     - [x] For image query: `"photo of e1, e2, e3, ..."`
+  7. [x] Encode enriched text with CLIP → `q_enriched`.
 
-- Integrate into search pipeline:
-  - Graph mode **always** calls `enrich_query` first.
-  - Baseline modes can bypass for ablations.
+- [x] Integrate into search pipeline:
+  - [x] Graph mode **always** calls `enrich_query` first.
+  - [x] Baseline modes can bypass for ablations.
 
 **Acceptance:**
 
-- Unit tests on a few example queries.
-- Log enriched text and entities for inspection.
+- [x] Unit tests on a few example queries.
+- [x] Log enriched text and entities for inspection.
 
 ---
 
-### Day 10–12: Graph expansion (multi-hop LightRAG-style)
+### Day 10–12: Graph expansion (multi-hop LightRAG-style) - ✅ Completed
 
 **Tasks:**
 
-- Implement `graph_search(query, graph, encoders, cfg)`:
+- [x] Implement `graph_search(query, graph, encoders, cfg)`:
 
-  1. Call `enrich_query` → `q_enriched`.
-  2. Compute similarity between `q_enriched` and all entity embeddings.
-  3. Select top-`K_seed` entity seeds.
-  4. Initialize a priority queue (max-heap) of frontier nodes:
-     - Key: `score(node)`
-     - Seed scores start from similarity to `q_enriched`.
-  5. Expand up to:
-     - `H_max` hops (default 2),
-     - `B` nodes processed,
-     - or `T_cap_ms` runtime.
+  1. [x] Call `enrich_query` → `q_enriched`.
+  2. [x] Compute similarity between `q_enriched` and all entity embeddings.
+  3. [x] Select top-`K_seed` entity seeds.
+  4. [x] Initialize a priority queue (max-heap) of frontier nodes:
+     - [x] Key: `score(node)`
+     - [x] Seed scores start from similarity to `q_enriched`.
+  5. [x] Expand up to:
+     - [x] `H_max` hops (default 2),
+     - [x] `B` nodes processed,
+     - [x] or `T_cap_ms` runtime.
 
-- Scoring rule:
-  - For each edge `u → v` at hop `h`:
+- [x] Scoring rule:
+  - [x] For each edge `u → v` at hop `h`:
 
     \
     score_v += score_u * decay**h * edge_weight * type_weight
     \
 
-  - `decay ≈ 0.85`
-  - `type_weight = 1.0` for semantic, `0.7` for co-occurrence.
+  - [x] `decay ≈ 0.85`
+  - [x] `type_weight = 1.0` for semantic, `0.7` for co-occurrence.
 
-- Maintain:
-  - `visited` set to avoid loops.
-  - `entity_scores` dict keyed by `entity_id`.
+- [x] Maintain:
+  - [x] `visited` set to avoid loops.
+  - [x] `entity_scores` dict keyed by `entity_id`.
 
-- After expansion:
-  - Convert `entity_scores` → `image_kg_scores` using `entity_context`.
+- [x] After expansion:
+  - [x] Convert `entity_scores` → `image_kg_scores` using `entity_context`.
 
 **Acceptance:**
 
-- Smoke test: for a few queries, print:
-  - Seed entities
-  - Expanded entities
-  - Top images by KG score.
-- Log runtime to verify within budget.
+- [x] Smoke test: for a few queries, print:
+  - [x] Seed entities
+  - [x] Expanded entities
+  - [x] Top images by KG score.
+- [x] Log runtime to verify within budget.
 
 ---
 

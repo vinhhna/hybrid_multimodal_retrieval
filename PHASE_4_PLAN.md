@@ -13,16 +13,16 @@ This plan already incorporates instructor feedback:
 
 ### Scope (Phase 4 only)
 
-- Build an **entity-centric multimodal knowledge graph** on Flickr30K using PyTorch Geometric.
-- Implement a **graph retriever** (LightRAG-style):
-  - Seed selection in CLIP space.
-  - Guided **multi-hop expansion** (graph expansion) with scoring & stopping rules.
-- Implement **mandatory query enrichment** prior to graph retrieval.
-- Produce a **KG-based relevance signal** and combine it with:
-  - CLIP score (Stage 1),
-  - BLIP-2 cross-encoder score (optional Stage 2).
-- Implement a **context synthesizer** that returns entity-based text + image references for Phase 5.
-- Keep **CLIP-only** and **Hybrid (CLIP + BLIP-2)** as baselines and fallbacks.
+- ✅ Build an **entity-centric multimodal knowledge graph** on Flickr30K using PyTorch Geometric.
+- ✅ Implement a **graph retriever** (LightRAG-style):
+  - ✅ Seed selection in CLIP space.
+  - ✅ Guided **multi-hop expansion** (graph expansion) with scoring & stopping rules.
+- ✅ Implement **mandatory query enrichment** prior to graph retrieval.
+- ✅ Produce a **KG-based relevance signal** and combine it with:
+  - ✅ CLIP score (Stage 1),
+  - 🚧 BLIP-2 cross-encoder score (optional Stage 2) - integration pending.
+- 🚧 Implement a **context synthesizer** that returns entity-based text + image references for Phase 5.
+- ✅ Keep **CLIP-only** and **Hybrid (CLIP + BLIP-2)** as baselines and fallbacks.
 
 ### Success Criteria
 
@@ -49,7 +49,7 @@ This plan already incorporates instructor feedback:
 
 ## 1. Entity-Centric Graph Design
 
-### 1.1 Node types
+### 1.1 Node types - ✅ Completed
 
 We drop separate *Image* and *Caption* nodes. The graph now has a single **Entity** node type.
 
@@ -69,7 +69,7 @@ Images themselves are **not nodes**. They live in:
 - The existing **FAISS indices** (image / caption embeddings).
 - A simple **image metadata DB** (JSON, SQLite, or in-memory dict) mapping `image_id → path, size, etc.`
 
-### 1.2 Entity extraction
+### 1.2 Entity extraction - ✅ Completed
 
 For Phase 4 we keep extraction simple and deterministic:
 
@@ -90,7 +90,7 @@ For Phase 4 we keep extraction simple and deterministic:
 
 This yields ~several thousand entity nodes, each connected to many images via context.
 
-### 1.3 Edge types
+### 1.3 Edge types - ✅ Completed
 
 Edges operate **between entities only**:
 
@@ -109,7 +109,7 @@ Edges operate **between entities only**:
 
 This structure supports **graph expansion**: if entity *A* frequently co-occurs with *B*, and *B* with *C*, then following edges (*A → B → C*) allows us to discover *C* even if the query initially only hit *A*.
 
-### 1.4 Storage & format
+### 1.4 Storage & format - ✅ Completed
 
 - Use **PyTorch Geometric** `HeteroData` with a single node type:
   - `data["entity"].x` — shape `[N_entities, d_model]`
@@ -124,11 +124,11 @@ This structure supports **graph expansion**: if entity *A* frequently co-occurs 
 
 ---
 
-## 2. Query Enrichment (Mandatory)
+## 2. Query Enrichment (Mandatory) - ✅ Completed
 
 Query enrichment is now a **required step** in the KG pipeline (can be toggled off only for baselines/ablations).
 
-### 2.1 Enrichment strategy
+### 2.1 Enrichment strategy - ✅ Completed
 
 1. **Initial CLIP retrieval:**
    - Encode raw query (text or image) with CLIP → `q0`.
@@ -161,9 +161,9 @@ Query enrichment is now a **required step** in the KG pipeline (can be toggled o
 
 ---
 
-## 3. Graph Retrieval & Expansion (LightRAG-style)
+## 3. Graph Retrieval & Expansion (LightRAG-style) - ✅ Completed
 
-### 3.1 Seeding entities
+### 3.1 Seeding entities - ✅ Completed
 
 Input: `q_enriched`.
 
@@ -173,9 +173,9 @@ Input: `q_enriched`.
    - De-duplicate entities with near-identical names.
    - Prefer seeds that connect to many images (high `df`).
 
-### 3.2 Graph expansion (multi-hop / “if a=b and b=c then a=c”)
+### 3.2 Graph expansion (multi-hop / "if a=b and b=c then a=c") - ✅ Completed
 
-We implement **controlled multi-hop expansion** to realize the instructor’s “a=b, b=c ⇒ a=c” idea.
+We implement **controlled multi-hop expansion** to realize the instructor's "a=b, b=c ⇒ a=c" idea.
 
 - Parameters:
   - `H_max` — max hops (default 2; allow 3 for experiments).
@@ -215,7 +215,7 @@ This means:
   - Hop limit reached (`H_max`).
   - Beam exhausted (`B` frontier nodes processed).
 
-### 3.3 From entities back to images
+### 3.3 From entities back to images - ✅ Completed
 
 Once we have a scored set of entities:
 
@@ -228,7 +228,7 @@ This gives a **KG-derived image relevance score** that captures multi-hop semant
 
 ---
 
-## 4. Score Fusion & Modes
+## 4. Score Fusion & Modes - 🚧 Integration Pending
 
 For each image candidate we can have up to three signals:
 
@@ -265,7 +265,7 @@ We will record final chosen defaults in a YAML config.
 
 ---
 
-## 5. Context Synthesizer (Entity-based)
+## 5. Context Synthesizer (Entity-based) - 🚧 TODO
 
 Given `(query, ranked_images, entity_scores, graph)` produce a **Phase 5 friendly** context:
 
@@ -307,7 +307,7 @@ This context will be fed into a multimodal LLM in Phase 5.
 
 ---
 
-## 6. Evaluation Plan (Phase 4)
+## 6. Evaluation Plan (Phase 4) - 🚧 TODO
 
 We will evaluate four modes:
 
