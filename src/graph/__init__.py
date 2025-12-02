@@ -55,6 +55,7 @@ from .graph_search import (
     GraphSearchResult,
     enrich_query,
     graph_search,
+    image_scores_dict,
 )
 
 # Context synthesis (context.py) - skeleton only
@@ -91,6 +92,7 @@ __all__ = [
     "GraphSearchResult",
     "enrich_query",
     "graph_search",
+    "image_scores_dict",
     # context.py
     "synthesize_context",
     "explain_image_ranking",

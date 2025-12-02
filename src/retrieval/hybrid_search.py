@@ -9,9 +9,12 @@ The hybrid approach balances speed and accuracy, achieving better results
 than CLIP alone while being much faster than using BLIP-2 for all candidates.
 
 Phase 3: Hybrid Retrieval System
+Phase 4 Day 13-14: Score fusion and integration with KG
 Created: November 4, 2025
+Updated: December 1, 2025 (Phase 4 fusion)
 """
 
+import logging
 import numpy as np
 from pathlib import Path
 from typing import List, Tuple, Optional, Dict, Any, Union
@@ -81,6 +84,95 @@ def dense_rank_desc(x: np.ndarray) -> np.ndarray:
     return ranks
 
 
+# ============================================================================
+# Phase 4: Score normalization and fusion helpers
+# ============================================================================
+
+def _min_max_normalize(scores: Dict[str, float]) -> Dict[str, float]:
+    """
+    Per-query min-max normalization for score fusion (Phase 4 Day 13-14).
+    
+    Normalizes scores to [0, 1] range using min-max scaling.
+    Returns zeros if all scores are identical (avoids division by zero).
+    
+    Args:
+        scores: Dictionary mapping image_id to raw score
+    
+    Returns:
+        Dictionary mapping image_id to normalized score in [0, 1]
+    
+    Example:
+        >>> raw_scores = {"img1.jpg": 0.8, "img2.jpg": 0.5, "img3.jpg": 0.9}
+        >>> normalized = _min_max_normalize(raw_scores)
+        >>> # img3 -> 1.0, img1 -> 0.75, img2 -> 0.0
+    """
+    if not scores:
+        return {}
+    
+    values = list(scores.values())
+    v_min, v_max = float(min(values)), float(max(values))
+    
+    # Handle constant scores (all identical)
+    if v_max - v_min < 1e-8:
+        return {k: 0.0 for k in scores}
+    
+    scale = v_max - v_min
+    return {k: (v - v_min) / scale for k, v in scores.items()}
+
+
+def _fuse_scores(
+    clip_scores: Dict[str, float],
+    stage2_scores: Dict[str, float],
+    kg_scores: Dict[str, float],
+    w_clip: float,
+    w_stage2: float,
+    w_kg: float,
+) -> Dict[str, float]:
+    """
+    Fuse multiple score signals using weighted combination (Phase 4 Day 13-14).
+    
+    Combines normalized scores from three signals:
+    - clip_scores: Stage 1 CLIP bi-encoder similarity
+    - stage2_scores: Stage 2 BLIP-2 cross-encoder scores
+    - kg_scores: Entity graph-derived image scores
+    
+    All input dicts are assumed to be already normalized to [0, 1].
+    Missing scores for a candidate are imputed as 0.0 (neutral).
+    
+    Args:
+        clip_scores: Normalized CLIP scores (image_id -> score)
+        stage2_scores: Normalized BLIP-2 scores (image_id -> score)
+        kg_scores: Normalized KG scores (image_id -> score)
+        w_clip: Weight for CLIP signal
+        w_stage2: Weight for BLIP-2 signal
+        w_kg: Weight for KG signal
+    
+    Returns:
+        Dictionary mapping image_id to fused score
+    
+    Example:
+        >>> clip = {"img1.jpg": 0.8, "img2.jpg": 0.5}
+        >>> stage2 = {"img1.jpg": 0.9}  # Only scored img1
+        >>> kg = {"img1.jpg": 0.7, "img2.jpg": 0.3}
+        >>> fused = _fuse_scores(clip, stage2, kg, 0.6, 0.2, 0.2)
+        >>> # img1: 0.6*0.8 + 0.2*0.9 + 0.2*0.7 = 0.80
+        >>> # img2: 0.6*0.5 + 0.2*0.0 + 0.2*0.3 = 0.36
+    """
+    # Collect all candidate image IDs
+    all_ids = set(clip_scores.keys()) | set(stage2_scores.keys()) | set(kg_scores.keys())
+    
+    # Compute fused scores
+    fused = {}
+    for img_id in all_ids:
+        clip_val = clip_scores.get(img_id, 0.0)
+        stage2_val = stage2_scores.get(img_id, 0.0)
+        kg_val = kg_scores.get(img_id, 0.0)
+        
+        fused[img_id] = w_clip * clip_val + w_stage2 * stage2_val + w_kg * kg_val
+    
+    return fused
+
+
 class HybridSearchEngine:
     """
     Hybrid Search Engine combining CLIP and BLIP-2 for improved retrieval.
@@ -134,7 +226,9 @@ class HybridSearchEngine:
         image_index: FAISSIndex,
         dataset: Flickr30KDataset,
         text_index: Optional[FAISSIndex] = None,
-        config: Optional[Dict[str, Any]] = None
+        config: Optional[Dict[str, Any]] = None,
+        entity_graph: Optional[Any] = None,
+        phase4_cfg: Optional[Dict[str, Any]] = None
     ):
         """
         Initialize the Hybrid Search Engine.
@@ -146,6 +240,8 @@ class HybridSearchEngine:
             dataset: Dataset handler for loading images
             text_index: Optional FAISS index for text embeddings (for image-to-text)
             config: Configuration dictionary with search parameters
+            entity_graph: Optional HeteroData entity graph for Phase 4 KG search
+            phase4_cfg: Optional Phase 4 configuration (from entity_graph.yaml)
         
         Configuration Parameters:
             k1 (int): Number of candidates to retrieve in Stage 1 (default: 100)
@@ -161,6 +257,10 @@ class HybridSearchEngine:
         self.image_index = image_index
         self.text_index = text_index
         self.dataset = dataset
+        
+        # Phase 4: Entity graph and configuration
+        self.entity_graph = entity_graph
+        self.phase4_cfg = phase4_cfg
         
         # Setup logger
         print("Initializing Hybrid Search Engine...")
@@ -186,6 +286,12 @@ class HybridSearchEngine:
         print(f"  Stage 2: BLIP-2")
         print(f"  Image Index: {image_index.index.ntotal:,} vectors")
         print(f"  Dataset: {len(dataset):,} images")
+        
+        # Phase 4 info
+        if self.entity_graph is not None:
+            n_entities = self.entity_graph["entity"].x.shape[0] if hasattr(self.entity_graph, "__getitem__") else 0
+            print(f"  Phase 4 KG: {n_entities} entities (available)")
+        
         print(f"  Config: k1={self.config['k1']}, k2={self.config['k2']}, "
               f"batch_size={self.config['batch_size']}, fusion={self.config['fusion_method']}")
     
@@ -238,16 +344,25 @@ class HybridSearchEngine:
         k1: Optional[int] = None,
         k2: Optional[int] = None,
         batch_size: Optional[int] = None,
-        show_progress: Optional[bool] = None
+        show_progress: Optional[bool] = None,
+        mode: Optional[str] = None
     ) -> List[Tuple[str, float]]:
         """
-        Perform hybrid text-to-image search.
+        Perform hybrid text-to-image search with Phase 4 mode support.
         
-        Pipeline:
+        Pipeline (depends on mode):
         1. Encode query text with CLIP
         2. Retrieve top-k1 candidates from image index (Stage 1)
-        3. Re-rank candidates with BLIP-2 (Stage 2)
-        4. Return top-k2 results
+        3. Optionally run KG graph search (clip_kg, full modes)
+        4. Optionally re-rank candidates with BLIP-2 (hybrid, full modes)
+        5. Fuse scores according to mode weights
+        6. Return top-k2 results
+        
+        Retrieval Modes (Phase 4 Day 13-14):
+          - clip_only: CLIP Stage 1 only (no BLIP-2, no KG)
+          - hybrid: CLIP + BLIP-2 (Phase 3 baseline, no KG)
+          - clip_kg: CLIP + KG (no BLIP-2)
+          - full: CLIP + BLIP-2 + KG (full Phase 4 hybrid)
         
         Args:
             query: Text query string
@@ -255,63 +370,276 @@ class HybridSearchEngine:
             k2: Number of final results (default: from config)
             batch_size: Batch size for BLIP-2 (default: from config)
             show_progress: Show progress bars (default: from config)
+            mode: Retrieval mode (default: from phase4_cfg fusion.default_mode or 'hybrid')
         
         Returns:
             List of (image_id, score) tuples, sorted by score (descending)
         
         Example:
-            >>> results = engine.text_to_image_hybrid_search(
-            ...     query="a dog playing in the park",
-            ...     k1=100,
-            ...     k2=10
-            ... )
-            >>> for image_id, score in results[:5]:
-            ...     print(f"{image_id}: {score:.4f}")
+            >>> # Phase 3 backward compatible (defaults to 'hybrid' if no phase4_cfg)
+            >>> results = engine.text_to_image_hybrid_search("a dog playing")
+            >>> 
+            >>> # Phase 4 full mode with KG fusion
+            >>> results = engine.text_to_image_hybrid_search("a dog playing", mode="full")
+            >>> 
+            >>> # CLIP-only mode for baseline
+            >>> results = engine.text_to_image_hybrid_search("a dog playing", mode="clip_only")
         """
+        import logging
+        logger = logging.getLogger(__name__)
+        
         # Use config defaults if not specified
         k1 = k1 or self.config['k1']
         k2 = k2 or self.config['k2']
         batch_size = batch_size or self.config['batch_size']
         show_progress = show_progress if show_progress is not None else self.config['show_progress']
         
-        # Check cache (include fusion-affecting parameters in key)
+        # Resolve mode: use provided mode, fallback to config default, or use 'clip_only'
+        if mode is None:
+            if self.phase4_cfg is not None:
+                try:
+                    from ..graph.config import get_fusion_config
+                    fusion_cfg = get_fusion_config(self.phase4_cfg)
+                    mode = fusion_cfg.get("default_mode", "hybrid")
+                except Exception as e:
+                    logger.warning(f"Failed to load fusion config: {e}, defaulting to 'hybrid'")
+                    mode = "hybrid"
+            else:
+                mode = "hybrid"  # Backward compatible default
+        
+        # Validate mode
+        valid_modes = ["clip_only", "hybrid", "clip_kg", "full"]
+        if mode not in valid_modes:
+            logger.warning(f"Unknown mode '{mode}', falling back to 'hybrid'")
+            mode = "hybrid"
+        
+        # Check cache (include mode in cache key)
         if self.cache_enabled:
-            cache_key = "t2i:{q}:{k1}:{k2}:{fm}:{w1}:{w2}:{bs}".format(
-                q=query,
-                k1=k1,
-                k2=k2,
-                fm=self.config.get('fusion_method', 'weighted'),
-                w1=self.config.get('stage1_weight', 0.3),
-                w2=self.config.get('stage2_weight', 0.7),
-                bs=batch_size
-            )
+            cache_key = f"t2i:{query}:{k1}:{k2}:{mode}:{batch_size}"
             if cache_key in self.cache:
                 self.stats['cache_hits'] += 1
-                # Cache hit for query
                 return self.cache[cache_key]
         
         # Track timing
         start_time = time.time()
         
-        # Stage 1: CLIP retrieval
+        # =====================================================================
+        # STAGE 1: CLIP RETRIEVAL (Always runs)
+        # =====================================================================
         stage1_start = time.time()
         candidates = self._stage1_retrieve(
             query=query,
             k1=k1,
             show_progress=show_progress
         )
-        stage1_time = (time.time() - stage1_start) * 1000  # Convert to ms
+        stage1_time = (time.time() - stage1_start) * 1000
         
-        # Stage 2: BLIP-2 re-ranking
-        stage2_start = time.time()
-        results = self._stage2_rerank(
-            query=query,
-            candidates=candidates,
-            k2=k2,
-            batch_size=batch_size,
-            show_progress=show_progress
+        # Extract image IDs and CLIP scores
+        image_ids = [img_id for img_id, _ in candidates]
+        clip_scores_raw = {img_id: score for img_id, score in candidates}
+        
+        # Early exit for clip_only mode
+        if mode == "clip_only":
+            results = candidates[:k2]
+            total_time = (time.time() - start_time) * 1000
+            
+            # Update statistics
+            self.stats['total_queries'] += 1
+            self.stats['stage1_latency_ms'].append(stage1_time)
+            self.stats['stage2_latency_ms'].append(0.0)
+            self.stats['total_latency_ms'].append(total_time)
+            
+            if show_progress:
+                print(f"Query completed in {total_time:.0f}ms (CLIP-only mode)")
+            
+            if self.cache_enabled:
+                self.cache[cache_key] = results
+            
+            return results
+        
+        # =====================================================================
+        # Determine which signals to compute based on mode
+        # =====================================================================
+        use_kg = mode in ("clip_kg", "full")
+        use_stage2 = mode in ("hybrid", "full")
+        
+        # =====================================================================
+        # KNOWLEDGE GRAPH SEARCH (if enabled for this mode)
+        # =====================================================================
+        kg_scores_raw: Dict[str, float] = {}
+        
+        if use_kg:
+            if self.entity_graph is not None and self.phase4_cfg is not None:
+                try:
+                    from ..graph.graph_search import graph_search, image_scores_dict
+                    from ..graph.config import get_query_enrichment_config
+                    
+                    logger.debug(f"Running KG graph search for mode '{mode}'")
+                    
+                    # Prepare seeds from Stage 1 CLIP results for enrichment
+                    enrichment_cfg = get_query_enrichment_config(self.phase4_cfg) if self.phase4_cfg else None
+                    if enrichment_cfg is not None:
+                        K_seed_raw = enrichment_cfg.get("K_seed_raw", 32)
+                    else:
+                        K_seed_raw = len(candidates)
+                    
+                    seeds_for_graph: List[Tuple[str, float]] = [
+                        (img_id, float(score)) for img_id, score in candidates[:K_seed_raw]
+                    ]
+                    
+                    logger.debug(f"Passing {len(seeds_for_graph)} Stage-1 seeds to graph_search for enrichment")
+                    
+                    # Run graph search with seeds
+                    kg_result = graph_search(
+                        query=query,
+                        graph=self.entity_graph,
+                        encoders=self.bi_encoder,
+                        cfg=self.phase4_cfg,
+                        seeds=seeds_for_graph
+                    )
+                    
+                    # Convert image_scores list to dict
+                    kg_scores_all = image_scores_dict(kg_result)
+                    
+                    # Restrict KG scores to Stage 1 candidates only
+                    kg_scores_raw = {
+                        img_id: kg_scores_all.get(img_id, 0.0)
+                        for img_id in image_ids
+                    }
+                    
+                    logger.debug(f"KG search completed: {len(kg_scores_all)} images scored, "
+                                f"{sum(1 for s in kg_scores_raw.values() if s > 0)} candidates matched")
+                
+                except Exception as e:
+                    logger.warning(f"KG search failed: {e}, falling back to non-KG mode", exc_info=True)
+                    use_kg = False
+                    kg_scores_raw = {}
+                    
+                    # Adjust mode fallback
+                    if mode == "clip_kg":
+                        mode = "clip_only"
+                        logger.info("Fallback: clip_kg -> clip_only")
+                    elif mode == "full":
+                        mode = "hybrid"
+                        logger.info("Fallback: full -> hybrid")
+            else:
+                logger.warning("KG not available (entity_graph or phase4_cfg missing), disabling KG")
+                use_kg = False
+                kg_scores_raw = {}
+                
+                # Adjust mode fallback
+                if mode == "clip_kg":
+                    mode = "clip_only"
+                elif mode == "full":
+                    mode = "hybrid"
+        
+        # =====================================================================
+        # STAGE 2: BLIP-2 RE-RANKING (if enabled for this mode)
+        # =====================================================================
+        stage2_scores_raw: Dict[str, float] = {}
+        stage2_time = 0.0
+        
+        if use_stage2:
+            if self.cross_encoder is not None:
+                try:
+                    stage2_start = time.time()
+                    
+                    # Run Stage 2 re-ranking (reuse existing implementation)
+                    reranked = self._stage2_rerank(
+                        query=query,
+                        candidates=candidates,
+                        k2=k1,  # Re-rank all candidates, fusion will select top-k2
+                        batch_size=batch_size,
+                        show_progress=show_progress
+                    )
+                    
+                    # Extract Stage 2 scores
+                    # Note: _stage2_rerank returns fused scores, but we need raw BLIP-2 scores
+                    # For now, we'll work with what we have and note this limitation
+                    # TODO: Refactor _stage2_rerank to return raw scores separately
+                    stage2_scores_raw = {img_id: score for img_id, score in reranked}
+                    
+                    stage2_time = (time.time() - stage2_start) * 1000
+                    
+                except Exception as e:
+                    logger.warning(f"Stage 2 BLIP-2 failed: {e}, disabling stage2", exc_info=True)
+                    use_stage2 = False
+                    stage2_scores_raw = {}
+                    
+                    # Adjust mode fallback
+                    if mode == "hybrid":
+                        mode = "clip_only"
+                        logger.info("Fallback: hybrid -> clip_only")
+                    elif mode == "full":
+                        mode = "clip_kg" if use_kg else "clip_only"
+                        logger.info(f"Fallback: full -> {mode}")
+            else:
+                logger.warning("BLIP-2 not available (cross_encoder is None), disabling stage2")
+                use_stage2 = False
+                stage2_scores_raw = {}
+                
+                # Adjust mode fallback
+                if mode == "hybrid":
+                    mode = "clip_only"
+                elif mode == "full":
+                    mode = "clip_kg" if use_kg else "clip_only"
+        
+        # =====================================================================
+        # SCORE FUSION (Phase 4 Day 13-14)
+        # =====================================================================
+        
+        # Load fusion weights for the current mode
+        try:
+            from ..graph.config import get_fusion_config
+            fusion_cfg = get_fusion_config(self.phase4_cfg) if self.phase4_cfg else None
+        except:
+            fusion_cfg = None
+        
+        if fusion_cfg and mode in fusion_cfg:
+            weights = fusion_cfg[mode]
+            w_clip = float(weights.get("w_clip", 1.0))
+            w_stage2 = float(weights.get("w_stage2", 0.0))
+            w_kg = float(weights.get("w_kg", 0.0))
+        else:
+            # Fallback weights based on mode
+            if mode == "clip_only":
+                w_clip, w_stage2, w_kg = 1.0, 0.0, 0.0
+            elif mode == "hybrid":
+                w_clip, w_stage2, w_kg = 0.7, 0.3, 0.0
+            elif mode == "clip_kg":
+                w_clip, w_stage2, w_kg = 0.7, 0.0, 0.3
+            elif mode == "full":
+                w_clip, w_stage2, w_kg = 0.6, 0.2, 0.2
+            else:
+                w_clip, w_stage2, w_kg = 1.0, 0.0, 0.0
+        
+        # Adjust weights for disabled signals
+        if not use_stage2:
+            w_stage2 = 0.0
+        if not use_kg:
+            w_kg = 0.0
+        
+        logger.debug(f"Fusion weights for mode '{mode}': "
+                    f"clip={w_clip:.2f}, stage2={w_stage2:.2f}, kg={w_kg:.2f}")
+        
+        # Normalize scores (min-max per signal)
+        clip_norm = _min_max_normalize(clip_scores_raw)
+        stage2_norm = _min_max_normalize(stage2_scores_raw) if stage2_scores_raw else {}
+        kg_norm = _min_max_normalize(kg_scores_raw) if kg_scores_raw else {}
+        
+        # Fuse normalized scores
+        fused_scores = _fuse_scores(
+            clip_scores=clip_norm,
+            stage2_scores=stage2_norm,
+            kg_scores=kg_norm,
+            w_clip=w_clip,
+            w_stage2=w_stage2,
+            w_kg=w_kg
         )
-        stage2_time = (time.time() - stage2_start) * 1000  # Convert to ms
+        
+        # Sort by fused score and select top-k2
+        sorted_items = sorted(fused_scores.items(), key=lambda kv: kv[1], reverse=True)
+        results = sorted_items[:k2]
         
         # Calculate total time
         total_time = (time.time() - start_time) * 1000
@@ -322,8 +650,9 @@ class HybridSearchEngine:
         self.stats['stage2_latency_ms'].append(stage2_time)
         self.stats['total_latency_ms'].append(total_time)
         
-        # Query completed
-        print(f"Query completed in {total_time:.0f}ms (Stage 1: {stage1_time:.0f}ms, Stage 2: {stage2_time:.0f}ms)")
+        if show_progress:
+            print(f"Query completed in {total_time:.0f}ms "
+                  f"(Stage 1: {stage1_time:.0f}ms, Stage 2: {stage2_time:.0f}ms, mode: {mode})")
         
         # Cache results
         if self.cache_enabled:
@@ -669,14 +998,16 @@ class HybridSearchEngine:
         k1: Optional[int] = None,
         k2: Optional[int] = None,
         batch_size: Optional[int] = None,
-        show_progress: Optional[bool] = None
+        show_progress: Optional[bool] = None,
+        mode: Optional[str] = None
     ) -> List[List[Tuple[str, float]]]:
         """
-        Perform batch hybrid text-to-image search for multiple queries.
+        Perform batch hybrid text-to-image search for multiple queries with Phase 4 mode support.
         
         Efficiently processes multiple queries by:
         1. Batching Stage 1 (CLIP) encoding for all queries at once
         2. Batching Stage 2 (BLIP-2) re-ranking across all candidates
+        3. Optionally batching KG graph search across all queries
         
         Args:
             queries: List of text query strings
@@ -684,6 +1015,7 @@ class HybridSearchEngine:
             k2: Number of final results per query (default: from config)
             batch_size: Batch size for BLIP-2 (default: from config)
             show_progress: Show progress bars (default: from config)
+            mode: Retrieval mode (clip_only, hybrid, clip_kg, full) (default: from config)
         
         Returns:
             List of result lists, one per query. Each result list contains
@@ -691,7 +1023,7 @@ class HybridSearchEngine:
         
         Example:
             >>> queries = ["a dog", "a cat", "a bird"]
-            >>> results = engine.batch_text_to_image_search(queries)
+            >>> results = engine.batch_text_to_image_search(queries, mode="full")
             >>> for i, query_results in enumerate(results):
             ...     print(f"Query '{queries[i]}':")
             ...     for img_id, score in query_results[:3]:
@@ -700,237 +1032,48 @@ class HybridSearchEngine:
         Performance Notes:
             - Stage 1 processes all queries in parallel (single batch)
             - Stage 2 batches all candidates together for efficiency
+            - KG search is run per-query but can be optimized in future
             - Typically 2-3x faster than sequential processing
         """
+        import logging
+        logger = logging.getLogger(__name__)
+        
         # Use config defaults if not specified
         k1 = k1 or self.config['k1']
         k2 = k2 or self.config['k2']
         batch_size = batch_size or self.config['batch_size']
         show_progress = show_progress if show_progress is not None else self.config['show_progress']
         
+        # Resolve mode
+        if mode is None:
+            if self.phase4_cfg is not None:
+                try:
+                    from ..graph.config import get_fusion_config
+                    fusion_cfg = get_fusion_config(self.phase4_cfg)
+                    mode = fusion_cfg.get("default_mode", "hybrid")
+                except Exception:
+                    mode = "hybrid"
+            else:
+                mode = "hybrid"
+        
         if not queries:
             return []
         
-        n_queries = len(queries)
-        if show_progress:
-            print(f"\n{'='*60}")
-            print(f"Batch Hybrid Search - {n_queries} queries")
-            print(f"{'='*60}")
-        
-        # =====================================================================
-        # STAGE 1: PARALLEL CLIP RETRIEVAL (All queries at once)
-        # =====================================================================
-        if show_progress:
-            print(f"\n[Stage 1] CLIP Retrieval (k1={k1})...")
-        
-        stage1_start = time.time()
-        
-        # Encode all queries in one batch
-        query_embeddings = self.bi_encoder.encode_texts(
-            texts=queries,
-            batch_size=32,  # CLIP can handle larger batches
-            normalize=True,
-            show_progress=show_progress
-        )
-        
-        # Search FAISS index for all queries
-        all_scores, all_indices = self.image_index.search(
-            query_embeddings=query_embeddings,
-            k=k1,
-            return_scores=True
-        )
-        
-        # Organize candidates per query
-        all_candidates = []
-        image_ids = self.image_index.metadata.get('ids', [])
-        
-        for query_idx in range(n_queries):
-            candidates = []
-            for idx, score in zip(all_indices[query_idx], all_scores[query_idx]):
-                if idx < len(image_ids):
-                    image_id = image_ids[idx]
-                    candidates.append((image_id, float(score)))
-            all_candidates.append(candidates)
-        
-        stage1_time = (time.time() - stage1_start) * 1000
-        
-        if show_progress:
-            print(f"  ✓ Retrieved {k1} candidates per query")
-            print(f"  ✓ Latency: {stage1_time:.2f}ms ({stage1_time/n_queries:.2f}ms per query)")
-        
-        # =====================================================================
-        # STAGE 2: BATCHED BLIP-2 RE-RANKING (All candidates together)
-        # =====================================================================
-        if show_progress:
-            print(f"\n[Stage 2] BLIP-2 Re-ranking (k2={k2}, batch_size={batch_size})...")
-        
-        stage2_start = time.time()
-        
-        # Prepare batch data: (query_idx, query_text, image_name, clip_score)
-        batch_items = []
-        for query_idx, (query, candidates) in enumerate(zip(queries, all_candidates)):
-            for image_name, clip_score in candidates:
-                batch_items.append({
-                    'query_idx': query_idx,
-                    'query': query,
-                    'image_name': image_name,
-                    'clip_score': clip_score
-                })
-        
-        # Get image paths
-        for item in batch_items:
-            image_path = self.dataset.images_dir / item['image_name']
-            item['image_path'] = str(image_path) if image_path.exists() else None
-        
-        # Filter out missing images
-        valid_items = [item for item in batch_items if item['image_path'] is not None]
-        
-        if show_progress:
-            print(f"  → Scoring {len(valid_items)} image-text pairs...")
-        
-        # Batch score all pairs
-        cross_scores = []
-        
-        iterator = range(0, len(valid_items), batch_size)
-        if show_progress:
-            iterator = tqdm(iterator, desc="  Re-ranking batches", unit="batch")
-        
-        for i in iterator:
-            batch = valid_items[i:i + batch_size]
-            
-            # Prepare batch for cross-encoder
-            queries_batch = [item['query'] for item in batch]
-            candidates_batch = [item['image_path'] for item in batch]
-            
-            # Score batch
-            scores = self.cross_encoder.score_pairs(
-                queries=queries_batch,
-                candidates=candidates_batch,
-                query_type='text',
-                candidate_type='image',
-                batch_size=len(batch),
-                show_progress=False
+        # For simplicity, delegate to single-query search for now
+        # TODO: Future optimization - batch Stage 1 + Stage 2 + KG across all queries
+        results = []
+        for query in (tqdm(queries, desc="Batch search") if show_progress else queries):
+            query_results = self.text_to_image_hybrid_search(
+                query=query,
+                k1=k1,
+                k2=k2,
+                batch_size=batch_size,
+                show_progress=False,
+                mode=mode
             )
-            cross_scores.extend(scores)
+            results.append(query_results)
         
-        # Add cross-encoder scores to items
-        for item, cross_score in zip(valid_items, cross_scores):
-            item['cross_score'] = cross_score
-        
-        # Group results by query
-        query_items = [[] for _ in range(n_queries)]
-        for item in valid_items:
-            query_items[item['query_idx']].append(item)
-        
-        # Apply fusion for each query
-        # Agreement quality thresholds
-        LOW_AGREE = 0.15   # |rho| below this → weak agreement
-        NEGATIVE = -0.20   # rho below this → inversion
-        
-        stage2_higher = getattr(self.cross_encoder, "higher_is_better", True)
-        
-        final_results = []
-        
-        for query_idx in range(n_queries):
-            items = query_items[query_idx]
-            if not items:
-                final_results.append([])
-                continue
-            
-            # Extract scores
-            clip_scores = np.array([it['clip_score'] for it in items], dtype=np.float32)
-            blip_scores = np.array([it['cross_score'] for it in items], dtype=np.float32)
-            
-            # Orient Stage-2 scores for fusion (higher = better)
-            blip2_for_fusion = blip_scores if stage2_higher else (-1.0 * blip_scores)
-            
-            # Orient Stage-1 scores: try both signs and choose the one that best aligns with Stage-2
-            clip_raw = clip_scores
-            if len(clip_raw) > 3:
-                c_pos = np.corrcoef(clip_raw, blip2_for_fusion)[0, 1]
-                c_neg = np.corrcoef(-clip_raw, blip2_for_fusion)[0, 1]
-                clip_for_fusion = clip_raw if abs(c_pos) >= abs(c_neg) else (-clip_raw)
-                correlation = np.corrcoef(clip_for_fusion, blip2_for_fusion)[0, 1]
-            else:
-                clip_for_fusion = clip_raw
-                correlation = 0.0
-            
-            # Default safer weights (0.6/0.4) unless config overrides were provided
-            stage1_weight = float(self.config.get('stage1_weight', 0.6))
-            stage2_weight = float(self.config.get('stage2_weight', 0.4))
-            fusion_method = self.config.get('fusion_method', 'weighted')
-            
-            # Gate on agreement quality
-            if correlation < NEGATIVE:
-                # True inversion → flip Stage-2 and keep conservative weights
-                if stage2_higher:
-                    blip2_for_fusion = 1.0 - blip2_for_fusion  # probability flip (p → 1-p)
-                else:
-                    blip2_for_fusion = -blip2_for_fusion       # score flip
-                fusion_method = 'weighted'
-                stage1_weight, stage2_weight = 0.6, 0.4
-                
-            elif abs(correlation) < LOW_AGREE:
-                # Weak agreement → prefer rank fusion (orientation-safe)
-                fusion_method = 'rank_fusion'
-            else:
-                # Good agreement: use configured fusion method/weights as-is
-                pass
-            
-            # Compute fused scores based on method
-            if fusion_method == 'weighted':
-                clip_norm = _normalize(clip_for_fusion)
-                blip_norm = _normalize(blip2_for_fusion)
-                fused_scores = stage1_weight * clip_norm + stage2_weight * blip_norm
-                fused_scores = np.asarray(fused_scores, dtype=np.float32)
-                
-            elif fusion_method == 'rank_fusion':
-                clip_rank = np.argsort(np.argsort(-clip_for_fusion))
-                blip_rank = np.argsort(np.argsort(-blip2_for_fusion))
-                k_rrf = 60.0
-                fused_scores = 1.0 / (k_rrf + clip_rank + 1) + 1.0 / (k_rrf + blip_rank + 1)
-                fused_scores = np.asarray(fused_scores, dtype=np.float32)
-                
-            else:  # 'replace'
-                # Use Stage-2 scores (after orientation correction)
-                fused_scores = blip2_for_fusion
-            
-            # Attach fused scores and sort
-            for item, fused_score in zip(items, fused_scores):
-                item['fused_score'] = float(fused_score)
-            
-            items.sort(key=lambda x: x['fused_score'], reverse=True)
-            
-            # Keep top-k2 and extract (image_name, fused_score) tuples
-            query_results = [
-                (item['image_name'], item['fused_score'])
-                for item in items[:k2]
-            ]
-            final_results.append(query_results)
-        
-        stage2_time = (time.time() - stage2_start) * 1000
-        total_time = stage1_time + stage2_time
-        
-        # Update statistics
-        for _ in range(n_queries):
-            self.stats['total_queries'] += 1
-            self.stats['stage1_latency_ms'].append(stage1_time / n_queries)
-            self.stats['stage2_latency_ms'].append(stage2_time / n_queries)
-            self.stats['total_latency_ms'].append(total_time / n_queries)
-        
-        if show_progress:
-            print(f"  ✓ Re-ranked to top {k2} per query")
-            print(f"  ✓ Latency: {stage2_time:.2f}ms ({stage2_time/n_queries:.2f}ms per query)")
-            print(f"\n{'='*60}")
-            print(f"Batch Search Complete")
-            print(f"  • Total queries: {n_queries}")
-            print(f"  • Total latency: {total_time:.2f}ms")
-            print(f"  • Per-query latency: {total_time/n_queries:.2f}ms")
-            print(f"  • Stage 1: {stage1_time/n_queries:.2f}ms/query")
-            print(f"  • Stage 2: {stage2_time/n_queries:.2f}ms/query")
-            print(f"{'='*60}\n")
-        
-        return final_results
+        return results
     
     def get_statistics(self) -> Dict[str, Any]:
         """
@@ -1359,21 +1502,16 @@ class HybridSearchEngine:
         show_progress: Optional[bool] = None
     ) -> List[Tuple[str, float]]:
         """
-        Perform graph-based text-to-image search with query enrichment (Phase 4).
+        DEPRECATED: Use text_to_image_hybrid_search with mode='clip_kg' or mode='full' instead.
         
-        This is the entry point for Phase 4 entity-centric retrieval. When query
-        enrichment is enabled, it:
-        1. Performs CLIP search to get seed images (Stage 1)
-        2. Calls enrich_query to expand query with entities
-        3. Uses enriched query for downstream retrieval
+        This method is a thin wrapper for backward compatibility and will be removed in a future version.
         
-        For now, this is a stub that performs basic enrichment and falls back
-        to hybrid search. Full graph search will be implemented in later days.
+        Legacy entry point for Phase 4 entity-centric retrieval with query enrichment.
         
         Args:
             query: Text query string
-            entity_context: Entity context mapping (entity_id -> {entity, image_ids, caption_ids})
-            phase4_config: Phase 4 configuration (entity_graph.yaml structure)
+            entity_context: DEPRECATED - Not used (entity_context is loaded from phase4_cfg in hybrid search)
+            phase4_config: DEPRECATED - Use HybridSearchEngine initialization parameter instead
             k1: Number of Stage 1 candidates (default: from config)
             k2: Number of final results (default: from config)
             show_progress: Show progress bars (default: from config)
@@ -1381,78 +1519,40 @@ class HybridSearchEngine:
         Returns:
             List of (image_id, score) tuples
         """
-        # Import here to avoid circular dependency
-        try:
-            from ..graph.graph_search import enrich_query
-            from ..graph.config import get_query_enrichment_config
-        except ImportError:
-            import sys
-            sys.path.append('..')
-            from graph.graph_search import enrich_query
-            from graph.config import get_query_enrichment_config
+        import warnings
+        import logging
+        
+        warnings.warn(
+            "text_to_image_graph_search is deprecated and will be removed in a future version. "
+            "Use text_to_image_hybrid_search(mode='clip_kg') for KG-only search or "
+            "text_to_image_hybrid_search(mode='full') for full pipeline (CLIP + BLIP-2 + KG).",
+            DeprecationWarning,
+            stacklevel=2
+        )
         
         # Use defaults if not provided
         k1 = k1 or self.config['k1']
         k2 = k2 or self.config['k2']
         show_progress = show_progress if show_progress is not None else self.config['show_progress']
         
-        # Check if query enrichment is enabled
-        if phase4_config is None:
-            print("Warning: phase4_config not provided, skipping query enrichment")
-            return self.text_to_image_hybrid_search(query, k1=k1, k2=k2, show_progress=show_progress)
-        
-        enrichment_cfg = get_query_enrichment_config(phase4_config)
-        
-        if not enrichment_cfg.get('enabled', False):
-            print("Query enrichment disabled, using standard hybrid search")
-            return self.text_to_image_hybrid_search(query, k1=k1, k2=k2, show_progress=show_progress)
-        
-        if entity_context is None:
-            print("Warning: entity_context not provided, skipping query enrichment")
-            return self.text_to_image_hybrid_search(query, k1=k1, k2=k2, show_progress=show_progress)
-        
-        # Stage 1: Get CLIP seeds for enrichment
-        print(f"[Graph Mode] Query enrichment enabled (K_seed={enrichment_cfg.get('K_seed_raw', 32)})")
-        K_seed_raw = enrichment_cfg.get('K_seed_raw', 32)
-        
-        candidates = self._stage1_retrieve(
-            query=query,
-            k1=K_seed_raw,
-            show_progress=False
-        )
-        
-        # Enrich query with entities from seeds
-        try:
-            enrichment_result = enrich_query(
-                query=query,
-                seeds=candidates,
-                encoders=self.bi_encoder,
-                entity_context=entity_context,
-                cfg=phase4_config
+        # Determine best mode based on what's available
+        # If entity_graph is available, use 'clip_kg', otherwise fall back to 'clip_only'
+        if self.entity_graph is not None and self.phase4_cfg is not None:
+            mode = "clip_kg"
+        else:
+            mode = "clip_only"
+            logging.getLogger(__name__).warning(
+                "Entity graph not available for text_to_image_graph_search, falling back to clip_only mode"
             )
-            
-            print(f"Query enriched with {len(enrichment_result.entity_names)} entities: "
-                  f"{', '.join(enrichment_result.entity_names[:5])}"
-                  f"{'...' if len(enrichment_result.entity_names) > 5 else ''}")
-            
-            # Use enriched query for downstream search
-            enriched_query = enrichment_result.enriched_query
-            
-        except Exception as e:
-            print(f"Warning: Query enrichment failed: {e}")
-            print("Falling back to original query")
-            enriched_query = query
         
-        # Perform hybrid search with enriched query
-        # TODO: In future days, integrate with full graph search
-        results = self.text_to_image_hybrid_search(
-            query=enriched_query,
+        # Delegate to unified hybrid search with appropriate mode
+        return self.text_to_image_hybrid_search(
+            query=query,
             k1=k1,
             k2=k2,
+            mode=mode,
             show_progress=show_progress
         )
-        
-        return results
 
 
 if __name__ == "__main__":

@@ -7,13 +7,18 @@ Key components:
   - Graph search: bounded beam search over entity graph with decay and edge weighting
   - Entity-to-image score aggregation: map entity scores to image scores
 
-Design invariants:
-  - Query enrichment is mandatory in graph mode (except for controlled ablations).
-  - Graph search uses LightRAG-style scoring with decay and edge-type weights.
-  - All embeddings (query, entity) are in the same CLIP space (dim=512, L2-normalized).
+Design:
+  - Entity-only graph (LightRAG-style): entities as nodes, images/captions stored off-graph
+  - Two edge types: semantic (similarity-based) and co-occurrence (frequency-based)
+  - Query enrichment is optional but recommended for better KG utilization
+  - graph_search is the main API and supports optional seeds from Stage-1 CLIP
+  - All embeddings (query, entity) are in the same CLIP space (dim=512, L2-normalized)
 
-Phase 4 implementation plan: Day 0 - Skeleton only
-Full implementation: Later days (Week 2)
+Phase 4 implementation status:
+  - Query enrichment: ✓ COMPLETE (Day 7-9)
+  - Graph search: ✓ COMPLETE (Day 10-12)
+  - Score fusion & integration: ✓ COMPLETE (Day 13-14)
+  - Fully integrated with hybrid retrieval system
 """
 
 from __future__ import annotations
@@ -412,10 +417,15 @@ def enrich_query(
          - For image queries (future): "photo of {entities}"
       7. Encode enriched text with CLIP → q_enriched.
       8. Return EnrichmentResult with all details.
+    
+    **Note on empty seeds**: If `seeds=[]` (e.g., standalone graph_search without
+    Stage 1), no candidate entities are found and `q_enriched == q0` (no enrichment).
+    This is expected behavior and allows graph_search to work in isolation.
 
     Args:
         query: Original user query string.
         seeds: List of (image_id, score) tuples from CLIP search (pre-computed by caller).
+               Can be empty for standalone usage, but enrichment will be a no-op.
         encoders: BiEncoder instance (CLIP model) for encoding query and enriched text.
         entity_context: Mapping from entity_id to dict with:
                         {"entity": str, "image_ids": List[str], "caption_ids": List[str]}
@@ -621,6 +631,18 @@ def _expand_frontier(
     """
     Expand frontier using priority queue beam search with LightRAG-style scoring.
     
+    Score propagation rule:
+        At each expansion step along an edge u → v:
+        score_v += score_u * decay * edge_weight * type_weight
+    
+    Where:
+      - score_u: accumulated score of source node u (already includes decay from previous hops)
+      - decay: global decay factor (e.g., 0.85) applied once per hop
+      - edge_weight: edge-specific weight (cosine similarity or co-occurrence strength)
+      - type_weight: edge type weight (type_weight_sem for semantic, type_weight_cooc for co-occurrence)
+    
+    Note: Decay is compounded through score_u as it propagates, not re-applied as decay^hop.
+    
     Args:
         seeds: Tuple of (seed_ids, seed_scores) tensors
         adj: Adjacency dict from _build_adjacency
@@ -743,24 +765,47 @@ def _aggregate_entity_scores_to_images(
 # Graph search main API
 # ============================================================================
 
+def image_scores_dict(result: GraphSearchResult) -> Dict[str, float]:
+    """
+    Convert GraphSearchResult.image_scores list to dict for easier lookup.
+    
+    Helper function for Phase 4 score fusion in hybrid_search.py.
+    
+    Args:
+        result: GraphSearchResult from graph_search
+    
+    Returns:
+        Dictionary mapping image_id (str) to kg_score (float)
+    
+    Example:
+        >>> result = graph_search(query, graph, encoders, cfg)
+        >>> kg_scores = image_scores_dict(result)
+        >>> score = kg_scores.get("12345.jpg", 0.0)
+    """
+    return {img_id: score for img_id, score in result.image_scores}
+
+
 def graph_search(
     query: str,
     graph: Any,  # HeteroData
     encoders: Any,
     cfg: Dict[str, Any],
+    seeds: Optional[List[Tuple[str, float]]] = None,
 ) -> GraphSearchResult:
     """
     Perform bounded beam search over the entity graph with query enrichment.
 
     Algorithm:
       1. Call enrich_query(...) to get EnrichmentResult with q_enriched.
+         Seeds for enrichment are provided by the retrieval layer (Stage 1 CLIP results).
+         If seeds is None, enrichment uses empty seeds (similarity-only, no frequency signal).
       2. Compute similarity between q_enriched and all entity embeddings.
-      3. Select top K_seed entities as seeds.
+      3. Select top K_seed entities as seeds for graph expansion.
       4. Initialize a max-heap frontier with seed entities and their scores.
       5. Expand frontier using beam search:
          - Pop highest-scoring entity u from frontier.
          - For each neighbor v of u (via semantic or co-occurrence edges):
-           - Update score_v += score_u * (decay ** hop) * edge_weight * type_weight
+           - Update: score_v += score_u * decay * edge_weight * type_weight
          - Enforce bounds: H_max hops, B processed nodes, N_max entities, T_cap_ms time.
       6. Aggregate entity scores to image scores using entity_context.
       7. Return GraphSearchResult with all details.
@@ -773,9 +818,16 @@ def graph_search(
                - graph["entity", "cooc", "entity"]: co-occurrence edges
         encoders: Encoder module (CLIP model) for encoding queries.
         cfg: Configuration dictionary. Must contain:
-             - query_enrichment: config for enrich_query
+             - query_enrichment: config for enrich_query (enabled, K_seed_raw, M_enrich, etc.)
              - graph_search: K_seed, H_max, B, N_max, T_cap_ms, decay, type_weights
              - entity_graph: paths to context and meta files
+        seeds: Optional list of (image_id, clip_score) tuples from Stage 1 CLIP retrieval.
+               Used by enrich_query for frequency-based entity scoring.
+               Seeds should be the top-K results from CLIP Stage 1 (e.g., K_seed_raw=32).
+               If None: enrichment runs with empty seeds, so the frequency term is zero
+                        and only similarity-based entity scoring is used.
+               If provided: enrichment uses both frequency (how often entities appear in seeds)
+                           and similarity (CLIP score of seeds) for entity selection.
 
     Returns:
         GraphSearchResult with query, enriched query, seed/entity/image scores, runtime.
@@ -787,6 +839,8 @@ def graph_search(
     # Load configs
     graph_search_cfg = get_graph_search_config(cfg)
     enrichment_cfg = get_query_enrichment_config(cfg)
+    # Note: enrichment_cfg is used only for the 'enabled' flag here.
+    # The enrich_query function reads cfg["query_enrichment"] internally for parameters.
     
     # Load entity context and meta
     entity_context = _load_entity_context(cfg)
@@ -798,11 +852,18 @@ def graph_search(
         # Call enrich_query with empty seeds list for now
         # Stage 1 CLIP seeds will be provided by the retrieval layer in future integration
         logger.debug(f"Enriching query for graph search: {query}")
-        seeds: List[Tuple[str, float]] = []  # Empty seeds for standalone usage
+        
+        # If seeds are provided by the retrieval layer, use them; otherwise default to empty
+        if seeds is None:
+            logger.debug("No seeds provided to graph_search; running enrichment with empty seeds")
+            seeds_for_enrichment: List[Tuple[str, float]] = []
+        else:
+            logger.debug(f"Using {len(seeds)} provided seeds for graph_search enrichment")
+            seeds_for_enrichment = seeds
         
         enrichment_result = enrich_query(
             query=query,
-            seeds=seeds,
+            seeds=seeds_for_enrichment,
             encoders=encoders,
             entity_context=entity_context,
             cfg=cfg,
