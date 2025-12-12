@@ -444,6 +444,108 @@ python scripts/test_search_engine.py --kaggle-input /kaggle/input/flickr30k
 
 ---
 
+## 🧬 Phase 4 Entity Graph Scripts
+
+### `build_entity_vocabulary.py` - Build Entity Vocabulary & Embeddings 📚
+
+**What it does:** Extracts entities from Flickr30K captions and builds CLIP embeddings.
+
+**When to use:** Phase 4 setup - builds entity vocabulary, context, embeddings, and metadata.
+
+**Run it:**
+```bash
+python -m scripts.build_entity_vocabulary
+```
+
+**On Kaggle:**
+```bash
+python -m scripts.build_entity_vocabulary
+```
+
+**What happens:**
+1. **Entity Extraction:** Processes all 158,914 captions
+   - Uses spaCy for noun phrase extraction (with fallback)
+   - Normalizes entity names (lowercase, strip punctuation)
+   - Filters by minimum document frequency (min_df=5)
+2. **Context Building:** Maps entities to images and captions
+3. **Entity Embeddings:** Encodes entities with CLIP text encoder
+   - Template: "a photo of {entity_name}"
+   - L2-normalized 512-dim vectors
+   - Validates for NaNs/Infs
+4. **Saves Artifacts:**
+   - `data/entities/entity_vocab.json` (~12,872 entities)
+   - `data/entities/entity_context.json` (entity→images/captions)
+   - `data/entities/entity_embeddings.pt` (CLIP embeddings)
+   - `data/entities/entity_meta.json` (metadata with stats)
+
+**Time:** 10-20 minutes (depends on spaCy availability)
+
+**Configuration:** `configs/entity_graph.yaml`
+- `min_df`: Minimum caption frequency (default: 5)
+- `entity_text_template`: Template for CLIP encoding (default: "a photo of {}")
+- `build_entity_embeddings`: Toggle embedding generation (default: true)
+- `batch_size`: Encoding batch size (default: 64)
+
+**What you'll see:**
+```
+======================================================================
+FLICKR30K ENTITY VOCABULARY BUILDER
+======================================================================
+
+✓ Using local data: data/
+📂 Loading Flickr30K dataset...
+✓ Adapter ready: 31,783 images
+
+======================================================================
+BUILDING ENTITY VOCABULARY
+======================================================================
+Building entity vocabulary with min_df=5
+Processed 158,914 captions from 31,783 images
+Found 45,123 unique normalized entities
+After filtering (min_df=5): 12,872 entities
+
+✓ Saved vocabulary to: data/entities/entity_vocab.json
+✓ Saved context to: data/entities/entity_context.json
+
+======================================================================
+BUILDING ENTITY EMBEDDINGS AND METADATA
+======================================================================
+  Entity text template: 'a photo of {}'
+  Batch size: 64
+  Total entities: 12,872
+  
+  Encoding entities in batches...
+    Encoded 12,872/12,872 entities
+  
+  Norms after L2 normalization:
+    Mean: 1.0000
+    Min:  0.9999
+    Max:  1.0001
+  
+✓ Saved embeddings to: data/entities/entity_embeddings.pt
+✓ Saved metadata to: data/entities/entity_meta.json
+
+✅ ENTITY VOCABULARY BUILD COMPLETE
+```
+
+**Requirements:**
+- CLIP model (ViT-B/32)
+- GPU recommended for faster embedding generation
+- Optional: spaCy with en_core_web_sm model
+  ```bash
+  pip install spacy
+  python -m spacy download en_core_web_sm
+  ```
+
+**Phase 4 Status:**
+- ✅ Day 0: Config & skeletons
+- ✅ Day 1-2: Entity vocabulary & context
+- ✅ Day 3-4: Entity embeddings & metadata
+- 🚧 Day 5-7: Graph construction (semantic + co-occurrence edges)
+- 🚧 Day 8+: Query enrichment & graph search
+
+---
+
 ## 📦 Setup Scripts
 
 ### `download_flickr30k.py` - Download Dataset 📥

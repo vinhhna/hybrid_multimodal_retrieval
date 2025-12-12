@@ -1,0 +1,156 @@
+# ============================================================================
+# ENTITY GRAPH CONFIGURATION
+# ============================================================================
+# Configuration for Phase 4 entity-centric graph vocabulary building.
+# Used by: scripts/build_entity_vocabulary.py
+# ============================================================================
+
+entity_graph:
+  # Minimum caption document frequency for an entity to be kept
+  # Entities appearing in fewer than min_df captions will be filtered out
+  min_df: 5
+
+  # Optional limit on number of images to process (for debugging).
+  # Use null to process all images in the dataset.
+  # Example: Set to 100 to process only first 100 images for quick testing
+  max_samples: null
+
+  # Output paths for entity artifacts, relative to the project root.
+  # These JSON files contain the vocabulary and context mappings.
+  vocab_path: "data/entities/entity_vocab.json"
+  context_path: "data/entities/entity_context.json"
+  entity_embeddings_path: "data/entities/entity_embeddings.pt"
+  entity_meta_path: "data/entities/entity_meta.json"
+  entity_graph_path: "data/graph/entity_graph.pt"
+
+  # Entity embedding generation (Phase 4 Day 3-4)
+  # Toggle to enable/disable entity embedding generation
+  build_entity_embeddings: true
+
+  # Template for entity text encoding (use {} as placeholder for entity name)
+  # Example: "a photo of {}" will encode "brown dog" as "a photo of brown dog"
+  entity_text_template: "a photo of {}"
+
+  # Verbose mode: print progress logs while building the vocabulary
+  # Set to true for detailed logging, false for minimal output
+  verbose: true
+
+  # Graph construction parameters (to be implemented in later days)
+  # k_sem: number of nearest neighbors for semantic edges
+  k_sem: 16
+  # degree_cap: maximum degree per node to avoid hub explosion
+  degree_cap: 64
+
+# ============================================================================
+# QUERY ENRICHMENT CONFIGURATION
+# ============================================================================
+# Configuration for query enrichment (Phase 4 - to be implemented)
+# Enrichment seeds entities from CLIP search results and expands query text.
+# ============================================================================
+
+query_enrichment:
+  # Enable/disable query enrichment globally
+  enabled: true
+
+  # K_seed_raw: number of top CLIP results to use for seeding entity enrichment
+  K_seed_raw: 32
+
+  # M_enrich: number of top entities to select for query enrichment
+  M_enrich: 8
+
+  # Scoring weights for entity selection
+  # w_freq: weight for frequency-based score (entities appearing in more seeds)
+  w_freq: 0.5
+  # w_sim: weight for similarity-based score (cosine similarity to query)
+  w_sim: 0.5
+
+  # Enable logging of enriched queries and entities for debugging
+  log_examples: true
+
+  # Template for enriched text query
+  # Placeholder {query} will be replaced with original query
+  # Placeholder {entities} will be replaced with comma-separated entity names
+  text_template: "{query}. Related: {entities}"
+
+  # Template for enriched image query
+  # Placeholder {entities} will be replaced with comma-separated entity names
+  image_template: "photo of {entities}"
+
+# ============================================================================
+# GRAPH SEARCH CONFIGURATION
+# ============================================================================
+# Configuration for graph search over the entity graph (Phase 4 - to be implemented)
+# Uses beam search with decay and edge-type weighting.
+# ============================================================================
+
+graph_search:
+  # K_seed: number of seed entities to start graph expansion from
+  K_seed: 10
+
+  # H_max: maximum number of hops for graph expansion
+  # Default 2, optionally 3 for experiments
+  H_max: 2
+
+  # B: maximum number of nodes to process during expansion (beam width)
+  B: 20
+
+  # N_max: maximum total entities to collect during search
+  N_max: 200
+
+  # T_cap_ms: time budget for graph search in milliseconds
+  T_cap_ms: 150
+
+  # Decay factor for score propagation across hops
+  # score_v += score_u * (decay ** hop) * edge_weight * type_weight
+  decay: 0.85
+
+  # Edge type weights for scoring
+  # type_weight_sem: weight for semantic edges (k-NN in embedding space)
+  type_weight_sem: 1.0
+  # type_weight_cooc: weight for co-occurrence edges (entity co-occurrence in captions/images)
+  type_weight_cooc: 0.7
+
+# ============================================================================
+# FUSION CONFIGURATION
+# ============================================================================
+# Configuration for fusing CLIP, KG, and BLIP-2 scores (Phase 4 Day 13-14)
+# Supports multiple retrieval modes with per-mode fusion weights
+# Final score = w_clip * clip_norm + w_stage2 * stage2_norm + w_kg * kg_norm
+# ============================================================================
+
+fusion:
+  # Default retrieval mode (clip_only, hybrid, clip_kg, or full)
+  default_mode: full
+  
+  # Per-mode fusion weights
+  # Each mode specifies weights for three signals: clip, stage2 (BLIP-2), kg
+  modes:
+    # Mode 1: CLIP-only (no BLIP-2, no KG)
+    clip_only:
+      w_clip: 1.0
+      w_stage2: 0.0
+      w_kg: 0.0
+    
+    # Mode 2: Hybrid (CLIP + BLIP-2, no KG) - Phase 3 baseline
+    hybrid:
+      w_clip: 0.7
+      w_stage2: 0.3
+      w_kg: 0.0
+    
+    # Mode 3: CLIP + KG (no BLIP-2) - KG experiment mode
+    clip_kg:
+      w_clip: 0.7
+      w_stage2: 0.0
+      w_kg: 0.3
+    
+    # Mode 4: Full hybrid (CLIP + BLIP-2 + KG) - Phase 4 full mode
+    full:
+      w_clip: 0.6
+      w_stage2: 0.2
+      w_kg: 0.2
+  
+  # Legacy flat weights for backward compatibility (treated as 'full' mode if modes not present)
+  # These are kept for backward compatibility only
+  w_clip: 0.6
+  w_kg: 0.2
+  w_blip2: 0.2
