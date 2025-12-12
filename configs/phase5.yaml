@@ -1,0 +1,76 @@
+# Phase 5 Configuration
+# Entity-based hybrid multimodal retrieval with vision grounding
+
+# Vision/Detection Configuration
+vision:
+  detector:
+    type: "owlvit"  # Options: owlvit, yolo, etc.
+    model_name: "google/owlvit-base-patch32"
+    threshold: 0.1
+    device: "cpu"
+  
+  storage:
+    cache_dir: "data/detections/"
+    enable_cache: true
+  
+  postprocess:
+    iou_threshold: 0.5
+    min_confidence: 0.3
+
+# Query Processing
+query:
+  slot_filler:
+    nlp_model: "en_core_web_sm"  # spaCy model
+    extract_attributes: true
+    extract_relations: true
+  
+  binding:
+    detection_weight: 0.5
+    attribute_weight: 0.5
+    aggregation_method: "min"  # min, max, avg
+
+# Attribute Verification
+verification:
+  method: "blip2"  # Options: blip2, clip
+  model_name: "Salesforce/blip2-opt-2.7b"
+  threshold: 0.5
+  device: "cpu"
+
+# Score Fusion & Gating
+scoring:
+  clip_weight: 0.4
+  kg_weight: 0.3
+  binding_weight: 0.3
+  kg_threshold: 0.1  # Min KG score to include
+  
+  # Adaptive gating: when to use entity binding
+  use_entity_binding_if:
+    has_adjectives: true
+    has_multiple_entities: true
+    query_length_min: 4  # tokens
+
+# Retrieval Configuration (inherits from hybrid_config.yaml)
+retrieval:
+  top_k: 100  # Initial CLIP retrieval
+  final_k: 10  # After reranking
+  
+  enable_kg: true
+  enable_entity_binding: true  # Phase 5 feature
+  
+  fallback_on_error:
+    kg_missing: "clip_only"
+    detector_error: "skip_binding"
+
+# Paths
+paths:
+  embeddings: "data/embeddings/"
+  indices: "data/indices/"
+  entities: "data/entities/"
+  graph: "data/graph/"
+  images: "data/images/"
+  detections: "data/detections/"
+
+# Logging
+logging:
+  level: "INFO"
+  file: "logs/phase5.log"
