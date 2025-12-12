@@ -2,7 +2,9 @@
 
 Simple guide to run this project on Kaggle.
 
-**⚠️ GPU Required**: Enable GPU (P100 or T4) in Kaggle notebook settings before running.
+**⚠️ GPU Required:** Enable GPU (P100 or T4) in Kaggle notebook settings before running.
+
+---
 
 ## 🚀 Setup for Notebooks (Run These First)
 

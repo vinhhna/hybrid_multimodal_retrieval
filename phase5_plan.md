@@ -1,9 +1,10 @@
-# Phase 5 – Vision-Grounded Entity Extraction & Graph Upgrade  
+# Phase 5 – Vision-Grounded Entity Extraction & Graph Upgrade
+
 **Final Review Version (v3: Robustness + Binding-Aware Scoring)**
 
 ---
 
-## 5.1. Scope and Objective
+## 5.1 Scope and Objective
 
 Phase 5 upgrades the existing **caption-only, entity-centric knowledge graph (KG)** into a **vision-grounded KG** for Flickr30K.
 

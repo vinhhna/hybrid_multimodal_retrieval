@@ -67,17 +67,6 @@ pytest tests\test_imports.py -v
 # Evaluate accuracy
 python scripts\evaluate_accuracy.py
 ```
-image_index = FAISSIndex.load('data/indices/image_index.faiss')
-text_index = FAISSIndex.load('data/indices/text_index.faiss')
-dataset = Flickr30KDataset('data/images', 'data/results.csv')
-
-# Create search engine
-engine = MultimodalSearchEngine(encoder, image_index, text_index, dataset)
-
-# Search!
-results = engine.text_to_image_search("A dog playing in the park", k=10)
-print(f"Found {len(results)} images!")
-```
 
 ---
 

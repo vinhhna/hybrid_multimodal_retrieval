@@ -1,12 +1,18 @@
-# Phase 5 Implementation Plan — v3.1 (Optimized for Heavy Days + Calibration-First + PMI Correctness + Binding Switch)
+# Phase 5 Implementation Plan – v3.1
+
+**Optimized for Heavy Days + Calibration-First + PMI Correctness + Binding Switch**
 
 **Goal:** Implement Phase 5 on top of Phase 4, producing a **vision-grounded, anti-bias controlled, hub-pruned, two-stream KG** that is **selectively activated** and that **explicitly fixes attribute binding** via **Option C (box-conditioned verification)**.
 
-**Core pipeline (unchanged):** CLIP + FAISS (Stage 1) → KG (Stage 2) → BLIP‑2 (Stage 3 re-rank, optional).  
-**Dataset:** Flickr30K (Karpathy split).  
-**Environment:** Kaggle-first (`/kaggle/working/hybrid_multimodal_retrieval`, data under `/kaggle/input/flickr30k/data/...`).  
-**Days:** Start at **Day 1**.  
-**Rule:** No test leakage — KG build, thresholds, calibration fit on **train** (+ optional val) only.
+**Core pipeline (unchanged):** CLIP + FAISS (Stage 1) → KG (Stage 2) → BLIP-2 (Stage 3 re-rank, optional)
+
+**Dataset:** Flickr30K (Karpathy split)
+
+**Environment:** Kaggle-first (`/kaggle/working/hybrid_multimodal_retrieval`, data under `/kaggle/input/flickr30k/data/...`)
+
+**Days:** Start at **Day 1**
+
+**Rule:** No test leakage — KG build, thresholds, calibration fit on **train** (+ optional val) only
 
 This version incorporates the engineering feedback:
 - **Day 5:** Safe-neighbor logic must be **precomputed + vectorized**, avoiding Python loops.
