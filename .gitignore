@@ -19,6 +19,10 @@ data/*.token
 *.jpeg
 *.png
 
+# Re-ignore cache files inside src/data
+src/data/__pycache__/
+src/data/*.pyc
+
 # Downloaded archives
 *.zip
 *.tar
