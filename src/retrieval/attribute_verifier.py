@@ -70,3 +70,44 @@ class AttributeVerifier:
         """
         # Placeholder: Return 0.5 for all
         return [0.5] * len(verifications)
+
+
+# ============================================================================
+# Phase 5 v3.1 Attribute Verification (Day 1: Stub, Day 10+: Implementation)
+# ============================================================================
+
+"""
+Phase 5 Day 10+: Attribute Verification for Entity-Attribute Binding
+
+TODO: Implement attribute verification for detected entity regions:
+  - Color attributes: HSV histogram matching in bounding box region
+  - Other attributes: CLIP region-text similarity
+  
+Implementation approach for color verification:
+  1. Crop image to bounding box region
+  2. Convert to HSV color space
+  3. Compute histogram over HSV bins
+  4. Check if dominant color matches expected color ranges (from config)
+  5. Return confidence score based on pixel fraction in range
+  
+Implementation approach for non-color attributes (CLIP fallback):
+  1. Crop image to bounding box region
+  2. Encode region with CLIP image encoder
+  3. Encode prompt "{attr} {obj}" with CLIP text encoder
+  4. Compute cosine similarity
+  5. Return normalized similarity as confidence score
+  
+HSV color ranges (from config):
+  - red: h_min=0, h_max=10, s_min=50, v_min=50
+  - blue: h_min=100, h_max=130, s_min=50, v_min=50
+  - green: h_min=50, h_max=80, s_min=40, v_min=40
+  - yellow: h_min=20, h_max=40, s_min=50, v_min=50
+  - orange: h_min=10, h_max=25, s_min=50, v_min=50
+  - (Add more as needed)
+  
+Related to:
+  - Binding score computation (binding_score.py)
+  - Query slot parsing (query_slots.py)
+  - Phase 5 Day 10: Attribute Verification (see Implementation Plan v3.1)
+  - Phase 5 config: phase5.binding.hsv_ranges, phase5.binding.clip_fallback
+"""

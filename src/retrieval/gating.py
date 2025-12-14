@@ -79,3 +79,104 @@ class ScoreGating:
         """
         # Placeholder: Always return False (CLIP + KG only)
         return False
+
+
+# ============================================================================
+# Phase 5 v3.1 Gating Functions (Day 1: Stubs + pure functions)
+# ============================================================================
+
+def compute_s_clip(
+    query_emb,  # np.ndarray or torch.Tensor
+    image_emb,  # np.ndarray or torch.Tensor
+) -> float:
+    """
+    Compute normalized CLIP similarity score.
+    
+    Phase 5 Day 1: Stub (raises NotImplementedError).
+    Phase 5 Day 8+: Full implementation with cosine similarity.
+    
+    Args:
+        query_emb: Query embedding vector
+        image_emb: Image embedding vector
+    
+    Returns:
+        Normalized CLIP similarity score in [0, 1].
+    
+    Raises:
+        NotImplementedError: Always on Day 1 (deferred to Day 8+).
+    """
+    raise NotImplementedError(
+        "compute_s_clip() implementation deferred to Phase 5 Day 8+. "
+        "Day 1 provides only the function signature for scaffolding."
+    )
+
+
+def compute_s_cov(
+    caption_entities: list[int],
+    kg_expanded_entities: list[int],
+) -> float:
+    """
+    Compute coverage score (fraction of caption entities in KG expansion).
+    
+    Phase 5 Day 1: Stub (raises NotImplementedError).
+    Phase 5 Day 8+: Full implementation with set intersection.
+    
+    Args:
+        caption_entities: List of entity IDs extracted from captions
+        kg_expanded_entities: List of entity IDs from KG expansion
+    
+    Returns:
+        Coverage score in [0, 1] (0 if no caption entities).
+    
+    Raises:
+        NotImplementedError: Always on Day 1 (deferred to Day 8+).
+    """
+    raise NotImplementedError(
+        "compute_s_cov() implementation deferred to Phase 5 Day 8+. "
+        "Day 1 provides only the function signature for scaffolding."
+    )
+
+
+def should_use_kg(
+    s_clip: float,
+    s_cov: float,
+    alpha: float = 0.5,
+    tau_gate: float = 0.5,
+) -> bool:
+    """
+    Decide whether to use KG expansion for this query-image pair.
+    
+    Phase 5 Day 1: Implemented (pure function, safe to use).
+    Phase 5 Day 8+: Used in gating logic.
+    
+    Gating decision:
+      - Use KG if: alpha * s_clip + (1 - alpha) * s_cov >= tau_gate
+      - Otherwise: CLIP-only (KG may be noisy or uninformative)
+    
+    Args:
+        s_clip: CLIP similarity score (normalized to [0, 1])
+        s_cov: Coverage score (fraction of caption entities in KG expansion)
+        alpha: Weight for CLIP score (1 - alpha is weight for coverage)
+        tau_gate: Gating threshold (default: 0.5)
+    
+    Returns:
+        True if KG should be used, False for CLIP-only.
+    
+    Example:
+        >>> # High CLIP, high coverage -> use KG
+        >>> should_use_kg(s_clip=0.8, s_cov=0.7, alpha=0.5, tau_gate=0.5)
+        True
+        
+        >>> # Low CLIP, low coverage -> skip KG
+        >>> should_use_kg(s_clip=0.3, s_cov=0.2, alpha=0.5, tau_gate=0.5)
+        False
+        
+        >>> # Borderline case (weighted sum = threshold)
+        >>> should_use_kg(s_clip=0.5, s_cov=0.5, alpha=0.5, tau_gate=0.5)
+        True
+    """
+    # Compute weighted gating score
+    gating_score = alpha * s_clip + (1.0 - alpha) * s_cov
+    
+    # Use KG if gating score meets threshold
+    return gating_score >= tau_gate

@@ -1,11 +1,89 @@
 """
 Post-processing utilities for object detections.
 
-Includes filtering, NMS, and box merging operations.
+Includes filtering, NMS, box merging operations, and Phase 5 confidence adjustment.
+
+Phase 5 Day 1: Add postprocess_conf() pure function for noise floor correction.
+Phase 5 Day 4: Use in postprocessing pipeline after threshold fitting.
 """
+
+from __future__ import annotations
 
 from typing import List, Tuple
 from .detector_base import Detection
+
+
+# ============================================================================
+# Phase 5 Confidence Postprocessing (Day 1: Implemented)
+# ============================================================================
+
+def postprocess_conf(
+    conf_raw: float,
+    tau_present: float,
+    noise_floor: float,
+    delta: float,
+) -> tuple[float, float, bool]:
+    """
+    Adjust raw confidence scores for noise floor and presence threshold.
+    
+    Phase 5 Day 1: Pure function implementation (safe, no dependencies).
+    Phase 5 Day 4: Used in threshold-based filtering pipeline.
+    
+    Algorithm:
+      1. Compute effective threshold: tau_eff = max(tau_present, noise_floor + delta)
+      2. Compute effective confidence: conf_eff = max(0, conf_raw - tau_eff)
+      3. Determine presence: is_present = (conf_eff > 0)
+    
+    The effective threshold ensures we stay safely above the noise floor
+    estimated from negative control phrases, plus a safety margin (delta).
+    
+    Args:
+        conf_raw: Raw confidence score from detector (uncalibrated)
+        tau_present: Phrase-specific presence threshold (e.g., from ROC curve fitting)
+        noise_floor: Global or phrase-type-specific noise floor estimate
+        delta: Safety margin above noise floor (e.g., 0.05)
+    
+    Returns:
+        Tuple of (tau_eff, conf_eff, is_present):
+          - tau_eff: Effective threshold used for filtering
+          - conf_eff: Effective confidence after noise correction
+          - is_present: Boolean indicator (True if entity is present)
+    
+    Example:
+        >>> # Case 1: Clear positive (high confidence above threshold)
+        >>> tau_eff, conf_eff, is_present = postprocess_conf(0.8, 0.3, 0.2, 0.05)
+        >>> print(f"tau_eff={tau_eff:.2f}, conf_eff={conf_eff:.2f}, present={is_present}")
+        tau_eff=0.30, conf_eff=0.50, present=True
+        
+        >>> # Case 2: Below noise floor + delta (rejected)
+        >>> tau_eff, conf_eff, is_present = postprocess_conf(0.15, 0.1, 0.2, 0.05)
+        >>> print(f"tau_eff={tau_eff:.2f}, conf_eff={conf_eff:.2f}, present={is_present}")
+        tau_eff=0.25, conf_eff=0.00, present=False
+        
+        >>> # Case 3: Between tau_present and noise_floor + delta (use noise floor)
+        >>> tau_eff, conf_eff, is_present = postprocess_conf(0.28, 0.20, 0.22, 0.05)
+        >>> print(f"tau_eff={tau_eff:.2f}, conf_eff={conf_eff:.2f}, present={is_present}")
+        tau_eff=0.27, conf_eff=0.01, present=True
+    
+    References:
+        - Phase 5 Implementation Plan v3.1, Day 4: Postprocessing Pipeline
+        - Negative Controls & Noise Floor Estimation (Day 7)
+    """
+    # Step 1: Compute effective threshold (max of presence threshold and noise floor + delta)
+    tau_eff = max(tau_present, noise_floor + delta)
+    
+    # Step 2: Compute effective confidence (subtract effective threshold, clamp to 0)
+    conf_eff = max(0.0, conf_raw - tau_eff)
+    
+    # Step 3: Determine presence (positive if effective confidence > 0)
+    is_present = conf_eff > 0.0
+    
+    return (tau_eff, conf_eff, is_present)
+
+
+# ============================================================================
+# Phase 4 Legacy Functions (kept for compatibility)
+# ============================================================================
 
 
 def filter_detections(detections: List[Detection], threshold: float = 0.3) -> List[Detection]:

@@ -53,3 +53,30 @@ class QuerySlotFiller:
         """
         # Placeholder: Return empty list
         return []
+
+
+# ============================================================================
+# Phase 5 v3.1 Query Slot Parsing (Day 1: Stub, Day 10+: Implementation)
+# ============================================================================
+
+"""
+Phase 5 Day 10+: Query Slot Parsing & Attribute Extraction
+
+TODO: Implement query slot filling for entity-attribute queries:
+  - Parse queries like "red car next to blue dog" into structured slots
+  - Extract entities: ["car", "dog"]
+  - Extract attributes: {"car": {"color": "red"}, "dog": {"color": "blue"}}
+  - Extract relations: [("car", "next to", "dog")]
+  
+Implementation approach:
+  1. Use spaCy or similar NLP library for dependency parsing
+  2. Identify nouns as entity mentions
+  3. Identify adjectives/modifiers as attributes
+  4. Identify prepositions/relations between entities
+  5. Map to QuerySlot dataclass structure
+  
+Related to:
+  - Attribute verification (attribute_verifier.py)
+  - Binding score computation (binding_score.py)
+  - Phase 5 Day 10: Query Slot Filling (see Implementation Plan v3.1)
+"""

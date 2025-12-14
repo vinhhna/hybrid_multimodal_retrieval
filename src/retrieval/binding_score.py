@@ -68,3 +68,38 @@ class BindingScorer:
         
         # Placeholder: Use minimum (all slots must match)
         return min(slot_bindings.values())
+
+
+# ============================================================================
+# Phase 5 v3.1 Binding Score Computation (Day 1: Stub, Day 10+: Implementation)
+# ============================================================================
+
+"""
+Phase 5 Day 10+: Entity-Attribute Binding Verification
+
+TODO: Implement binding score computation for entity-attribute queries:
+  - Given query slots (e.g., "red car") and detection boxes
+  - Verify attribute bindings (is the car actually red?)
+  - Compute binding score based on:
+    1. Detection confidence (entity presence)
+    2. Attribute verification score (HSV color matching or CLIP region similarity)
+  
+Implementation approach:
+  1. For each query slot, find top-K detection boxes (topB_boxes per image)
+  2. For each box, verify attributes:
+     - Color attributes: HSV color histogram matching in box region
+     - Other attributes: CLIP similarity with "{attr} {obj}" prompt
+  3. Combine detection confidence + attribute scores
+  4. Aggregate across all slots (min/avg/max strategy)
+  
+Related to:
+  - Attribute verification (attribute_verifier.py)
+  - Query slot parsing (query_slots.py)
+  - Phase 5 Day 10: Binding Verification (see Implementation Plan v3.1)
+  
+Configuration:
+  - topN_images: Number of top-ranked images to verify (from config)
+  - topB_boxes: Number of top-scored boxes per image (from config)
+  - hsv_ranges: Color ranges for HSV matching (from config)
+  - clip_fallback: Use CLIP if HSV fails (from config)
+"""

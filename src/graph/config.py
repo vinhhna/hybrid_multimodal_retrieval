@@ -1,17 +1,16 @@
 """
-Configuration helpers for Phase 4 entity-centric graph.
+Configuration helpers for entity-centric graph and hybrid retrieval.
 
-This module provides utilities for loading and accessing Phase 4 configuration
+This module provides utilities for loading and accessing configuration
 from YAML files. It centralizes config access and provides type-safe interfaces
-for entity_graph, query_enrichment, graph_search, and fusion sections.
+for entity_graph, query_enrichment, graph_search, fusion, and phase5 sections.
 
-Phase 4 implementation plan: Day 0 - Prereqs & Setup
-Phase 4 Day 13-14: Extended with per-mode fusion configuration
+Phase 5 configuration includes vision-grounded entity graph with open-vocabulary
+object detection, visual priors, and binding verification.
 """
 
 from __future__ import annotations
 
-import pprint
 import yaml
 from pathlib import Path
 from typing import Any, Dict
@@ -22,15 +21,13 @@ ConfigDict = Dict[str, Any]
 
 def load_entity_graph_config(path: str | Path) -> ConfigDict:
     """
-    Load the Phase 4 entity graph configuration from a YAML file.
+    Load entity graph configuration from a YAML file.
 
     This helper provides a single entry point to read sections:
       - entity_graph: paths, thresholds (min_df, k_sem, degree_cap, etc.)
       - query_enrichment: K_seed_raw, M_enrich, templates, etc.
       - graph_search: K_seed, H_max, B, T_cap_ms, decay, edge weights
-      - fusion: Per-mode weights with two supported schemas:
-        
-        **New nested schema (recommended)**:
+      - fusion: Per-mode weights with nested schema:
             fusion:
               default_mode: full
               modes:
@@ -38,12 +35,7 @@ def load_entity_graph_config(path: str | Path) -> ConfigDict:
                 hybrid: {w_clip: 0.7, w_stage2: 0.3, w_kg: 0.0}
                 clip_kg: {w_clip: 0.7, w_stage2: 0.0, w_kg: 0.3}
                 full: {w_clip: 0.6, w_stage2: 0.2, w_kg: 0.2}
-        
-        **Legacy flat schema (backward compatible)**:
-            fusion:
-              w_clip: 0.6
-              w_kg: 0.2
-              w_blip2: 0.2  # Auto-normalized to w_stage2
+      - phase5: Vision-grounded entity graph config (optional)
 
     Args:
         path: Path to the YAML configuration file (typically configs/entity_graph.yaml).
@@ -199,11 +191,10 @@ def get_graph_search_config(cfg: ConfigDict) -> ConfigDict:
 
 def get_fusion_config(cfg: ConfigDict) -> ConfigDict:
     """
-    Extract fusion configuration section with per-mode weights (Phase 4 Day 13-14).
+    Extract fusion configuration section with per-mode weights.
     
-    Supports both new nested schema (modes) and legacy flat schema for backward compatibility.
+    Requires nested schema with explicit modes (legacy flat schema no longer supported):
     
-    **New schema** (entity_graph.yaml with fusion.modes):
         fusion:
           default_mode: full
           modes:
@@ -212,121 +203,77 @@ def get_fusion_config(cfg: ConfigDict) -> ConfigDict:
             clip_kg: {w_clip: 0.7, w_stage2: 0.0, w_kg: 0.3}
             full: {w_clip: 0.6, w_stage2: 0.2, w_kg: 0.2}
     
-    **Legacy schema** (flat weights, for backward compatibility):
-        fusion:
-          w_clip: 0.7
-          w_kg: 0.2
-          w_blip2: 0.1  # Automatically normalized to w_stage2
-    
-    **Key normalization**: Legacy `w_blip2` is automatically converted to `w_stage2`
-    for consistency across the codebase. This function always returns weights using
-    the w_stage2 key regardless of input schema.
-    
     Args:
         cfg: Full configuration dictionary loaded from YAML.
 
     Returns:
-        Dictionary with per-mode fusion weights and default_mode. Always returns
-        the same normalized structure:
+        Dictionary with per-mode fusion weights and default_mode:
         {
             "clip_only": {"w_clip": 1.0, "w_stage2": 0.0, "w_kg": 0.0},
             "hybrid": {"w_clip": 0.7, "w_stage2": 0.3, "w_kg": 0.0},
             "clip_kg": {"w_clip": 0.7, "w_stage2": 0.0, "w_kg": 0.3},
             "full": {"w_clip": 0.6, "w_stage2": 0.2, "w_kg": 0.2},
-            "default_mode": "full"  # or "hybrid" for legacy configs
+            "default_mode": "full"
         }
+    
+    Raises:
+        ValueError: If fusion section is missing or malformed (legacy flat schema).
     
     Modes:
       - clip_only: CLIP Stage 1 only (fastest, no reranking, no KG)
-      - hybrid: CLIP + BLIP-2 reranking (Phase 3 baseline, no KG)
+      - hybrid: CLIP + BLIP-2 reranking (no KG)
       - clip_kg: CLIP + KG (no BLIP-2, for KG experiments)
-      - full: CLIP + BLIP-2 + KG (full Phase 4 hybrid)
+      - full: CLIP + BLIP-2 + KG (full hybrid retrieval)
     
     Example:
         >>> cfg = load_entity_graph_config("configs/entity_graph.yaml")
         >>> fusion_cfg = get_fusion_config(cfg)
         >>> print(fusion_cfg["default_mode"])  # "full"
         >>> print(fusion_cfg["full"]["w_clip"])  # 0.6
-        >>> print(fusion_cfg["full"]["w_stage2"])  # 0.2 (normalized from w_blip2 if needed)
     """
     fusion_cfg = cfg.get("fusion", {})
     
-    # Check if new nested schema is present
-    if "modes" in fusion_cfg and isinstance(fusion_cfg["modes"], dict):
-        # New schema: extract modes
-        modes = fusion_cfg["modes"]
-        
-        # Normalize key names: w_blip2 -> w_stage2 for consistency
-        normalized_modes = {}
-        for mode_name, weights in modes.items():
-            normalized_weights = {}
-            for key, value in weights.items():
-                if key == "w_blip2":
-                    normalized_weights["w_stage2"] = value
-                else:
-                    normalized_weights[key] = value
-            normalized_modes[mode_name] = normalized_weights
-        
-        # Extract default_mode
-        default_mode = fusion_cfg.get("default_mode", "full")
-        
-        # Build result with defaults for missing modes
-        result = {
-            "clip_only": normalized_modes.get("clip_only", {
-                "w_clip": 1.0, "w_stage2": 0.0, "w_kg": 0.0
-            }),
-            "hybrid": normalized_modes.get("hybrid", {
-                "w_clip": 0.7, "w_stage2": 0.3, "w_kg": 0.0
-            }),
-            "clip_kg": normalized_modes.get("clip_kg", {
-                "w_clip": 0.7, "w_stage2": 0.0, "w_kg": 0.3
-            }),
-            "full": normalized_modes.get("full", {
-                "w_clip": 0.6, "w_stage2": 0.2, "w_kg": 0.2
-            }),
-            "default_mode": default_mode
-        }
-        
-        return result
+    # Require nested schema with modes
+    if "modes" not in fusion_cfg or not isinstance(fusion_cfg["modes"], dict):
+        raise ValueError(
+            "Invalid fusion configuration: missing 'modes' section. "
+            "Expected nested schema in configs/entity_graph.yaml:\n"
+            "  fusion:\n"
+            "    default_mode: full\n"
+            "    modes:\n"
+            "      clip_only: {w_clip: 1.0, w_stage2: 0.0, w_kg: 0.0}\n"
+            "      hybrid: {w_clip: 0.7, w_stage2: 0.3, w_kg: 0.0}\n"
+            "      clip_kg: {w_clip: 0.7, w_stage2: 0.0, w_kg: 0.3}\n"
+            "      full: {w_clip: 0.6, w_stage2: 0.2, w_kg: 0.2}\n"
+            "Legacy flat fusion schema (w_clip, w_kg, w_blip2) is no longer supported."
+        )
     
-    else:
-        # Legacy flat schema: synthesize modes from flat weights
-        w_clip = fusion_cfg.get("w_clip", 0.7)
-        w_kg = fusion_cfg.get("w_kg", 0.2)
-        # Accept both w_blip2 and w_stage2 for backward compatibility
-        w_stage2 = fusion_cfg.get("w_stage2", fusion_cfg.get("w_blip2", 0.1))
-        
-        # Treat flat weights as "full" mode and synthesize other modes
-        result = {
-            "clip_only": {
-                "w_clip": 1.0,
-                "w_stage2": 0.0,
-                "w_kg": 0.0
-            },
-            "hybrid": {
-                "w_clip": 0.7,
-                "w_stage2": 0.3,
-                "w_kg": 0.0
-            },
-            "clip_kg": {
-                "w_clip": 0.7,
-                "w_stage2": 0.0,
-                "w_kg": 0.3
-            },
-            "full": {
-                "w_clip": w_clip,
-                "w_stage2": w_stage2,
-                "w_kg": w_kg
-            },
-            "default_mode": "hybrid"  # Default to hybrid for legacy configs
-        }
-        
-        return result
+    modes = fusion_cfg["modes"]
+    default_mode = fusion_cfg.get("default_mode", "full")
+    
+    # Build result with defaults for missing modes
+    result = {
+        "clip_only": modes.get("clip_only", {
+            "w_clip": 1.0, "w_stage2": 0.0, "w_kg": 0.0
+        }),
+        "hybrid": modes.get("hybrid", {
+            "w_clip": 0.7, "w_stage2": 0.3, "w_kg": 0.0
+        }),
+        "clip_kg": modes.get("clip_kg", {
+            "w_clip": 0.7, "w_stage2": 0.0, "w_kg": 0.3
+        }),
+        "full": modes.get("full", {
+            "w_clip": 0.6, "w_stage2": 0.2, "w_kg": 0.2
+        }),
+        "default_mode": default_mode
+    }
+    
+    return result
 
 
 def print_config_summary(cfg: ConfigDict) -> None:
     """
-    Print a human-readable summary of the Phase 4 configuration.
+    Print a human-readable summary of the configuration.
 
     Useful for logging at the start of scripts to provide transparency
     about which hyperparameters are being used.
@@ -335,7 +282,7 @@ def print_config_summary(cfg: ConfigDict) -> None:
         cfg: Full configuration dictionary loaded from YAML.
     """
     print("\n" + "=" * 70)
-    print("PHASE 4 CONFIGURATION SUMMARY")
+    print("CONFIGURATION SUMMARY")
     print("=" * 70)
     
     entity_cfg = get_entity_graph_config(cfg)
@@ -367,3 +314,97 @@ def print_config_summary(cfg: ConfigDict) -> None:
             print(f"      w_kg: {weights.get('w_kg', 0.0):.2f}")
     
     print("\n" + "=" * 70)
+
+
+def get_phase5_config(cfg: ConfigDict) -> ConfigDict:
+    """
+    Extract Phase 5 configuration section with defaults.
+    
+    Phase 5 (v3.1) introduces vision-grounded entity graph and hybrid retrieval
+    with open-vocabulary object detection, visual priors, and binding verification.
+    
+    This function provides safe defaults for all Phase 5 keys. If the phase5 
+    section is missing from the config, returns an empty dict (Phase 5 features 
+    disabled).
+    
+    Args:
+        cfg: Full configuration dictionary loaded from YAML.
+    
+    Returns:
+        Dictionary with phase5 config keys and defaults applied.
+        Returns empty dict if phase5 section not present (Phase 5 disabled).
+    
+    Example:
+        >>> cfg = load_entity_graph_config("configs/entity_graph.yaml")
+        >>> phase5_cfg = get_phase5_config(cfg)
+        >>> if phase5_cfg:  # Check if Phase 5 features are enabled
+        ...     detector_cfg = phase5_cfg.get("detector", {})
+        ...     print(detector_cfg.get("model_id", "owlvit"))
+    """
+    phase5_cfg = cfg.get("phase5", {})
+    
+    # If phase5 section is missing, return empty dict (Phase 5 disabled)
+    if not phase5_cfg:
+        return {}
+    
+    # Apply defaults for each subsection
+    defaults = {
+        "candidates": {
+            "vis_prior_topK": 50,
+            "tau_vis": 0.20,
+            "C_max": 128,
+        },
+        "safe_neighbors": {
+            "tau_sim": 0.25,
+            "use_mutual_knn": True,
+            "min_df_vis": 5,
+            "require_in_vis_prior": False,
+        },
+        "detector": {
+            "model_id": "owlvit",
+            "batch_size_images": 8,
+            "batch_size_phrases": 128,
+            "cache_dir": "data/vision/cache",
+            "raw_shards_dir": "data/vision/raw_shards",
+            "post_shards_dir": "data/vision/post_shards",
+            "shard_size": 500,
+        },
+        "negative_controls": {
+            "null_phrases": ["xyzzy nonsense phrase 1", "blark random phrase 2"],
+            "noise_percentile": 95,
+            "delta": 0.05,
+        },
+        "thresholds": {
+            "strategy": "grouped",
+            "objective": "fixed_fpr",
+            "target_fpr": 0.05,
+            "target_precision": 0.90,
+            "min_support": 200,
+        },
+        "binding": {
+            "enable": False,
+            "topN_images": 50,
+            "topB_boxes": 5,
+            "hsv_ranges": {},
+            "clip_fallback": {
+                "enable": True,
+                "prompt_template": "a photo of a {attr} {obj}",
+            },
+        },
+        "pmi": {
+            "smoothing_eps": 1.0,
+            "npmi_min": 0.20,
+            "npmi_min_stop": 0.20,
+            "degree_cap": 500,
+            "per_node_topk": 200,
+            "stop_nodes_topM_df": 50,
+        },
+    }
+    
+    # Merge defaults with actual config (actual config takes precedence)
+    result = {}
+    for section_key, section_defaults in defaults.items():
+        section_cfg = phase5_cfg.get(section_key, {})
+        result[section_key] = {**section_defaults, **section_cfg}
+    
+    return result
