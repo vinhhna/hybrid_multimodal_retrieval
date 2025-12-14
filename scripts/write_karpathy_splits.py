@@ -58,6 +58,13 @@ Environment variables:
     )
     
     parser.add_argument(
+        "--karpathy-json",
+        type=str,
+        default=None,
+        help="Explicit path to Karpathy split JSON (overrides dataset-root search)"
+    )
+    
+    parser.add_argument(
         "--out-dir",
         type=str,
         default=None,
@@ -72,20 +79,37 @@ Environment variables:
     
     args = parser.parse_args()
     
+    # Handle --karpathy-json (explicit JSON path)
+    karpathy_json_path = None
+    if args.karpathy_json:
+        karpathy_json_path = Path(args.karpathy_json)
+        if not karpathy_json_path.exists():
+            print(f"ERROR: Karpathy JSON does not exist: {karpathy_json_path}", file=sys.stderr)
+            sys.exit(1)
+    
     # Determine dataset root
+    # If --karpathy-json is provided, dataset_root is only used for context/logging
+    # Otherwise, it's required for JSON search
     if args.dataset_root:
         dataset_root = Path(args.dataset_root)
     elif "FLICKR30K_ROOT" in os.environ:
         dataset_root = Path(os.environ["FLICKR30K_ROOT"])
         print(f"Using FLICKR30K_ROOT from environment: {dataset_root}")
+    elif args.karpathy_json:
+        # If explicit JSON provided, use its parent as dataset_root (for display only)
+        dataset_root = karpathy_json_path.parent
+        print(f"Using parent of --karpathy-json as dataset root: {dataset_root}")
     else:
         print("ERROR: No dataset root specified", file=sys.stderr)
         print("\nProvide dataset root via:", file=sys.stderr)
         print("  1. --dataset-root argument", file=sys.stderr)
         print("  2. FLICKR30K_ROOT environment variable", file=sys.stderr)
+        print("  3. --karpathy-json (uses parent directory)", file=sys.stderr)
         sys.exit(1)
     
-    if not dataset_root.exists():
+    # Only validate dataset_root existence if we're not using explicit JSON
+    # (since we already validated karpathy_json_path above)
+    if not args.karpathy_json and not dataset_root.exists():
         print(f"ERROR: Dataset root does not exist: {dataset_root}", file=sys.stderr)
         sys.exit(1)
     
@@ -134,7 +158,11 @@ Environment variables:
     
     # Generate manifests
     try:
-        splits = generate_karpathy_manifests(dataset_root, out_dir)
+        splits = generate_karpathy_manifests(
+            dataset_root=dataset_root,
+            out_dir=out_dir,
+            karpathy_json=karpathy_json_path
+        )
     except Exception as e:
         print(f"\nERROR: Failed to generate manifests", file=sys.stderr)
         print(f"{type(e).__name__}: {e}", file=sys.stderr)

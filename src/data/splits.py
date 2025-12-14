@@ -170,7 +170,8 @@ def write_split_ids(
 
 def generate_karpathy_manifests(
     dataset_root: Path,
-    out_dir: Path
+    out_dir: Path,
+    karpathy_json: Path | None = None,
 ) -> dict[SplitName, list[str]]:
     """
     Generate train/val/test split manifests from Karpathy-style dataset JSON.
@@ -192,40 +193,53 @@ def generate_karpathy_manifests(
     - "file_name", "img", "image" instead of "filename"
     
     Args:
-        dataset_root: Root directory containing Karpathy dataset JSON
+        dataset_root: Root directory containing Karpathy dataset JSON (used for search if karpathy_json not provided)
         out_dir: Output directory for manifest files
+        karpathy_json: Optional explicit path to Karpathy JSON file (bypasses search logic)
     
     Returns:
         Dictionary mapping split names to lists of image IDs
     
     Raises:
-        FileNotFoundError: If no Karpathy dataset JSON found
+        FileNotFoundError: If no Karpathy dataset JSON found (when karpathy_json not provided)
         ValueError: If JSON structure is invalid
     """
     dataset_root = Path(dataset_root)
     
-    # Search for Karpathy dataset JSON (common filenames)
-    candidate_names = [
-        "dataset_flickr30k.json",
-        "dataset.json",
-        "flickr30k_karpathy.json",
-        "karpathy_splits.json",
-    ]
-    
-    dataset_json = None
-    for candidate in candidate_names:
-        candidate_path = dataset_root / candidate
-        if candidate_path.exists():
-            dataset_json = candidate_path
-            break
-    
-    if dataset_json is None:
-        raise FileNotFoundError(
-            f"No Karpathy dataset JSON found in {dataset_root}\n"
-            f"Expected one of: {', '.join(candidate_names)}"
-        )
-    
-    print(f"Loading Karpathy dataset from: {dataset_json}")
+    # Determine JSON source: explicit path or search
+    if karpathy_json is not None:
+        # Explicit JSON path provided
+        dataset_json = Path(karpathy_json)
+        if not dataset_json.exists():
+            raise FileNotFoundError(
+                f"Karpathy JSON not found at specified path: {dataset_json}\n"
+                f"Please check the --karpathy-json argument."
+            )
+        print(f"Loading Karpathy dataset from (explicit): {dataset_json}")
+    else:
+        # Search for Karpathy dataset JSON (common filenames)
+        candidate_names = [
+            "dataset_flickr30k.json",
+            "dataset.json",
+            "flickr30k_karpathy.json",
+            "karpathy_splits.json",
+        ]
+        
+        dataset_json = None
+        for candidate in candidate_names:
+            candidate_path = dataset_root / candidate
+            if candidate_path.exists():
+                dataset_json = candidate_path
+                break
+        
+        if dataset_json is None:
+            raise FileNotFoundError(
+                f"No Karpathy dataset JSON found in {dataset_root}\n"
+                f"Expected one of: {', '.join(candidate_names)}\n"
+                f"Tip: Use --karpathy-json to specify an explicit path."
+            )
+        
+        print(f"Loading Karpathy dataset from (search): {dataset_json}")
     
     try:
         with open(dataset_json, 'r', encoding='utf-8') as f:
