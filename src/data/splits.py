@@ -4,9 +4,9 @@ Karpathy split utilities for Flickr30K dataset.
 This module provides functions to load, validate, and manage train/val/test splits
 following the Karpathy split convention for Flickr30K.
 
-Expected split sizes (Flickr30K Karpathy):
+Expected split sizes (Flickr30K Karpathy - canonical):
 - train: 29,000 images
-- val: 1,000 images
+- val: 1,014 images
 - test: 1,000 images
 """
 
@@ -20,10 +20,10 @@ from typing import Literal
 # Type alias for split names
 SplitName = Literal["train", "val", "test"]
 
-# Expected Flickr30K Karpathy split sizes
+# Expected Flickr30K Karpathy split sizes (canonical)
 EXPECTED_SIZES = {
     "train": 29000,
-    "val": 1000,
+    "val": 1014,  # Canonical Karpathy split uses 1014 validation images
     "test": 1000,
 }
 

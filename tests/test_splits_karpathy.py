@@ -3,7 +3,7 @@ Unit tests for Karpathy split utilities.
 
 This test validates:
 - No overlap between train/val/test splits
-- Correct split sizes (train=29000, val=1000, test=1000)
+- Correct split sizes (train=29000, val=1014, test=1000)
 - Split manifests can be generated if dataset is available
 
 The test behavior is practical for Windows dev machines:
@@ -133,9 +133,9 @@ def test_karpathy_splits_disjoint_and_sized():
 
 def test_validate_splits_function():
     """Test the validate_splits function with synthetic data."""
-    # Valid splits
+    # Valid splits (canonical Karpathy sizes)
     train = [f"train_{i}.jpg" for i in range(29000)]
-    val = [f"val_{i}.jpg" for i in range(1000)]
+    val = [f"val_{i}.jpg" for i in range(1014)]
     test = [f"test_{i}.jpg" for i in range(1000)]
     
     # Should not raise
