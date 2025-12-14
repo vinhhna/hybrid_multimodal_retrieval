@@ -34,6 +34,13 @@ from pathlib import Path
 
 import torch
 
+# Add project root to path early
+project_root = Path(__file__).resolve().parent.parent
+if project_root not in sys.path:
+    sys.path.insert(0, str(project_root))
+
+from src.data.splits import forbid_test_split
+
 
 def main() -> None:
     """
@@ -46,6 +53,13 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="Build entity graph for Phase 4",
         formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    parser.add_argument(
+        "--split",
+        type=str,
+        required=True,
+        choices=["train", "val", "test"],
+        help="Dataset split to use (train/val/test)"
     )
     parser.add_argument(
         "--data-folder",
@@ -61,6 +75,9 @@ def main() -> None:
     )
     args = parser.parse_args()
     
+    # Enforce leakage prevention: forbid test split for KG artifact building
+    forbid_test_split(args.split, context="Entity graph build scripts must not run on test")
+    
     data_folder = Path(args.data_folder)
     output_folder = Path(args.output_folder)
     
@@ -75,6 +92,7 @@ def main() -> None:
     print("=" * 70)
     print("ENTITY GRAPH BUILDER - PHASE 4 DAY 5-7")
     print("=" * 70)
+    print(f"\n🎯 Split: {args.split}")
     print(f"\n[Paths]")
     print(f"  Input data folder: {data_folder}")
     print(f"  Output folder: {output_folder}")

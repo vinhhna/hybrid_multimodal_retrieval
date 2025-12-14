@@ -10,6 +10,8 @@ __pycache__/
 
 # Flickr30K Dataset (large files - do not commit)
 data/
+!src/data/
+!src/data/**
 data/images/
 data/*.csv
 data/*.token

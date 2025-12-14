@@ -12,6 +12,7 @@ Usage (from repo root):
 
 from __future__ import annotations
 
+import argparse
 import sys
 import yaml
 from pathlib import Path
@@ -29,6 +30,7 @@ from src.graph.entities import (
     save_entity_embeddings_and_meta,
 )
 from src.graph.config import load_entity_graph_config, get_entity_graph_config
+from src.data.splits import load_split_ids, forbid_test_split
 
 
 class DatasetAdapter:
@@ -42,19 +44,28 @@ class DatasetAdapter:
     This adapter wraps the existing Flickr30KDataset to provide that interface.
     """
     
-    def __init__(self, flickr_dataset: Flickr30KDataset):
+    def __init__(self, flickr_dataset: Flickr30KDataset, split_ids: List[str] | None = None):
         """
         Initialize the adapter.
         
         Args:
             flickr_dataset: Loaded Flickr30KDataset instance.
+            split_ids: Optional list of image IDs to filter by (for train/val/test split).
         """
         self.dataset = flickr_dataset
         if self.dataset.df is None:
             raise ValueError("Dataset must be loaded before creating adapter")
         
         # Get unique image names (our iteration basis)
-        self.image_names = self.dataset.get_unique_images()
+        all_image_names = self.dataset.get_unique_images()
+        
+        # Filter by split if provided
+        if split_ids is not None:
+            split_set = set(split_ids)
+            self.image_names = [img for img in all_image_names if img in split_set]
+            print(f"  ✓ Filtered to {len(self.image_names):,} images from {len(all_image_names):,} total (split filter)")
+        else:
+            self.image_names = all_image_names
     
     def __len__(self) -> int:
         """Return the number of images."""
@@ -89,16 +100,46 @@ def main() -> None:
     Main function to build entity vocabulary.
     
     Steps:
-      1. Instantiate Flickr30KDataset
-      2. Wrap it in DatasetAdapter
-      3. Configure entity builder
-      4. Call build_entity_vocabulary
-      5. Optionally build entity embeddings and metadata (if enabled in config)
-      6. Print summary statistics
+      1. Parse arguments and enforce split guardrails
+      2. Load split IDs
+      3. Instantiate Flickr30KDataset
+      4. Wrap it in DatasetAdapter with split filter
+      5. Configure entity builder
+      6. Call build_entity_vocabulary
+      7. Optionally build entity embeddings and metadata (if enabled in config)
+      8. Print summary statistics
     """
+    # Parse command-line arguments
+    parser = argparse.ArgumentParser(
+        description="Build entity vocabulary from Flickr30K dataset",
+        formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    parser.add_argument(
+        "--split",
+        type=str,
+        required=True,
+        choices=["train", "val", "test"],
+        help="Dataset split to use (train/val/test)"
+    )
+    args = parser.parse_args()
+    
+    # Enforce leakage prevention: forbid test split for KG artifact building
+    forbid_test_split(args.split, context="Entity vocabulary build scripts must not run on test")
+    
     print("=" * 70)
     print("FLICKR30K ENTITY VOCABULARY BUILDER")
     print("=" * 70)
+    print(f"\n🎯 Split: {args.split}")
+    
+    # Load split IDs
+    print(f"\n📋 Loading {args.split} split manifest...")
+    try:
+        split_ids = load_split_ids(args.split)
+        print(f"  ✓ Loaded {len(split_ids):,} image IDs for {args.split} split")
+    except FileNotFoundError as e:
+        print(f"\n✗ Error: {e}")
+        print("\nPlease run: python scripts/write_karpathy_splits.py --dataset-root <path>")
+        sys.exit(1)
     
     # Determine data paths
     # Try Kaggle path first, fall back to local
@@ -126,10 +167,10 @@ def main() -> None:
         auto_load=True,
     )
     
-    # Wrap in adapter
-    print(f"\n🔄 Creating dataset adapter...")
-    adapted_dataset = DatasetAdapter(dataset)
-    print(f"✓ Adapter ready: {len(adapted_dataset)} images")
+    # Wrap in adapter with split filter
+    print(f"\n🔄 Creating dataset adapter (filtering by {args.split} split)...")
+    adapted_dataset = DatasetAdapter(dataset, split_ids=split_ids)
+    print(f"✓ Adapter ready: {len(adapted_dataset):,} images (filtered from {dataset.num_images:,} total)")
     
     # Load configuration from YAML using the new helper
     config_path = project_root / "configs" / "entity_graph.yaml"
