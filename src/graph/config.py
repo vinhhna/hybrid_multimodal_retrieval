@@ -177,6 +177,10 @@ def get_graph_search_config(cfg: ConfigDict) -> ConfigDict:
     """
     search_cfg = cfg.get("graph_search", {})
     
+    # Support 3 edge families: sem, cooc_caption, cooc_vision
+    # Fall back to unified type_weight_cooc for backward compatibility
+    default_cooc_weight = search_cfg.get("type_weight_cooc", 0.7)
+    
     return {
         "K_seed": search_cfg.get("K_seed", 10),
         "H_max": search_cfg.get("H_max", 2),
@@ -185,7 +189,9 @@ def get_graph_search_config(cfg: ConfigDict) -> ConfigDict:
         "T_cap_ms": search_cfg.get("T_cap_ms", 150),
         "decay": search_cfg.get("decay", 0.85),
         "type_weight_sem": search_cfg.get("type_weight_sem", 1.0),
-        "type_weight_cooc": search_cfg.get("type_weight_cooc", 0.7),
+        "type_weight_cooc": default_cooc_weight,  # Legacy unified weight
+        "type_weight_cooc_caption": search_cfg.get("type_weight_cooc_caption", default_cooc_weight),
+        "type_weight_cooc_vision": search_cfg.get("type_weight_cooc_vision", default_cooc_weight),
     }
 
 
@@ -252,19 +258,30 @@ def get_fusion_config(cfg: ConfigDict) -> ConfigDict:
     default_mode = fusion_cfg.get("default_mode", "full")
     
     # Build result with defaults for missing modes
+    # Apply w_blip2/w_stage2 aliasing: prefer w_blip2, fall back to w_stage2
+    def _normalize_mode_weights(mode_cfg: dict) -> dict:
+        """Normalize mode config to use w_blip2, falling back to w_stage2 for compatibility."""
+        result = dict(mode_cfg)
+        # If w_blip2 is present, use it; otherwise use w_stage2
+        if "w_blip2" in result:
+            result["w_stage2"] = result.get("w_stage2", result["w_blip2"])  # Keep both
+        elif "w_stage2" in result:
+            result["w_blip2"] = result["w_stage2"]  # Alias w_stage2 to w_blip2
+        return result
+    
     result = {
-        "clip_only": modes.get("clip_only", {
-            "w_clip": 1.0, "w_stage2": 0.0, "w_kg": 0.0
-        }),
-        "hybrid": modes.get("hybrid", {
-            "w_clip": 0.7, "w_stage2": 0.3, "w_kg": 0.0
-        }),
-        "clip_kg": modes.get("clip_kg", {
-            "w_clip": 0.7, "w_stage2": 0.0, "w_kg": 0.3
-        }),
-        "full": modes.get("full", {
-            "w_clip": 0.6, "w_stage2": 0.2, "w_kg": 0.2
-        }),
+        "clip_only": _normalize_mode_weights(modes.get("clip_only", {
+            "w_clip": 1.0, "w_blip2": 0.0, "w_stage2": 0.0, "w_kg": 0.0
+        })),
+        "hybrid": _normalize_mode_weights(modes.get("hybrid", {
+            "w_clip": 0.7, "w_blip2": 0.3, "w_stage2": 0.3, "w_kg": 0.0
+        })),
+        "clip_kg": _normalize_mode_weights(modes.get("clip_kg", {
+            "w_clip": 0.7, "w_blip2": 0.0, "w_stage2": 0.0, "w_kg": 0.3
+        })),
+        "full": _normalize_mode_weights(modes.get("full", {
+            "w_clip": 0.6, "w_blip2": 0.2, "w_stage2": 0.2, "w_kg": 0.2
+        })),
         "default_mode": default_mode
     }
     
@@ -353,6 +370,12 @@ def get_phase5_config(cfg: ConfigDict) -> ConfigDict:
             "vis_prior_topK": 50,
             "tau_vis": 0.20,
             "C_max": 128,
+            "global_topN": 50,
+            "priority_order": ["caption", "visual_prior", "safe_neighbors", "global"],
+            "max_caption": None,
+            "max_visual_prior": None,
+            "max_safe_neighbors": None,
+            "max_global": None,
         },
         "safe_neighbors": {
             "tau_sim": 0.25,
@@ -365,6 +388,10 @@ def get_phase5_config(cfg: ConfigDict) -> ConfigDict:
             "batch_size_images": 8,
             "batch_size_phrases": 128,
             "cache_dir": "data/vision/cache",
+            # Split-safe templates (prevent train/val/test leakage)
+            "raw_shards_dir_template": "data/vision/{split}_raw_shards",
+            "post_shards_dir_template": "data/vision/{split}_post_shards",
+            # Legacy (not split-safe)
             "raw_shards_dir": "data/vision/raw_shards",
             "post_shards_dir": "data/vision/post_shards",
             "shard_size": 500,

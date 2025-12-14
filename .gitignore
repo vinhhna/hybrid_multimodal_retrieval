@@ -45,6 +45,7 @@ models/
 logs/
 runs/
 outputs/
+results/
 *.log
 
 # OS specific

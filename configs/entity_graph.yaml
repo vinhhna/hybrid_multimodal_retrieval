@@ -1,296 +1,148 @@
-# ============================================================================
-# ENTITY GRAPH CONFIGURATION
-# ============================================================================
-# Configuration for Phase 4 entity-centric graph vocabulary building.
-# Used by: scripts/build_entity_vocabulary.py
-# ============================================================================
-
 entity_graph:
-  # Minimum caption document frequency for an entity to be kept
-  # Entities appearing in fewer than min_df captions will be filtered out
-  min_df: 5
-
-  # Optional limit on number of images to process (for debugging).
-  # Use null to process all images in the dataset.
-  # Example: Set to 100 to process only first 100 images for quick testing
-  max_samples: null
-
-  # Output paths for entity artifacts, relative to the project root.
-  # These JSON files contain the vocabulary and context mappings.
-  vocab_path: "data/entities/entity_vocab.json"
-  context_path: "data/entities/entity_context.json"
-  entity_embeddings_path: "data/entities/entity_embeddings.pt"
-  entity_meta_path: "data/entities/entity_meta.json"
-  entity_graph_path: "data/graph/entity_graph.pt"
-
-  # Entity embedding generation (Phase 4 Day 3-4)
-  # Toggle to enable/disable entity embedding generation
+  K_neighbors: 16
   build_entity_embeddings: true
-
-  # Template for entity text encoding (use {} as placeholder for entity name)
-  # Example: "a photo of {}" will encode "brown dog" as "a photo of brown dog"
-  entity_text_template: "a photo of {}"
-
-  # Verbose mode: print progress logs while building the vocabulary
-  # Set to true for detailed logging, false for minimal output
-  verbose: true
-
-  # Graph construction parameters (to be implemented in later days)
-  # k_sem: number of nearest neighbors for semantic edges
-  k_sem: 16
-  # degree_cap: maximum degree per node to avoid hub explosion
+  context_path: data/entities/entity_context.json
   degree_cap: 64
-
-# ============================================================================
-# QUERY ENRICHMENT CONFIGURATION
-# ============================================================================
-# Configuration for query enrichment (Phase 4 - to be implemented)
-# Enrichment seeds entities from CLIP search results and expands query text.
-# ============================================================================
-
-query_enrichment:
-  # Enable/disable query enrichment globally
-  enabled: true
-
-  # K_seed_raw: number of top CLIP results to use for seeding entity enrichment
-  K_seed_raw: 32
-
-  # M_enrich: number of top entities to select for query enrichment
-  M_enrich: 8
-
-  # Scoring weights for entity selection
-  # w_freq: weight for frequency-based score (entities appearing in more seeds)
-  w_freq: 0.5
-  # w_sim: weight for similarity-based score (cosine similarity to query)
-  w_sim: 0.5
-
-  # Enable logging of enriched queries and entities for debugging
-  log_examples: true
-
-  # Template for enriched text query
-  # Placeholder {query} will be replaced with original query
-  # Placeholder {entities} will be replaced with comma-separated entity names
-  text_template: "{query}. Related: {entities}"
-
-  # Template for enriched image query
-  # Placeholder {entities} will be replaced with comma-separated entity names
-  image_template: "photo of {entities}"
-
-# ============================================================================
-# GRAPH SEARCH CONFIGURATION
-# ============================================================================
-# Configuration for graph search over the entity graph (Phase 4 - to be implemented)
-# Uses beam search with decay and edge-type weighting.
-# ============================================================================
-
-graph_search:
-  # K_seed: number of seed entities to start graph expansion from
-  K_seed: 10
-
-  # H_max: maximum number of hops for graph expansion
-  # Default 2, optionally 3 for experiments
-  H_max: 2
-
-  # B: maximum number of nodes to process during expansion (beam width)
-  B: 20
-
-  # N_max: maximum total entities to collect during search
-  N_max: 200
-
-  # T_cap_ms: time budget for graph search in milliseconds
-  T_cap_ms: 150
-
-  # Decay factor for score propagation across hops
-  # score_v += score_u * (decay ** hop) * edge_weight * type_weight
-  decay: 0.85
-
-  # Edge type weights for scoring
-  # type_weight_sem: weight for semantic edges (k-NN in embedding space)
-  type_weight_sem: 1.0
-  # type_weight_cooc: weight for co-occurrence edges (entity co-occurrence in captions/images)
-  type_weight_cooc: 0.7
-
-# ============================================================================
-# FUSION CONFIGURATION
-# ============================================================================
-# Configuration for fusing CLIP, KG, and BLIP-2 scores
-# Supports multiple retrieval modes with per-mode fusion weights
-# Final score = w_clip * clip_norm + w_stage2 * stage2_norm + w_kg * kg_norm
-# ============================================================================
-
+  entity_embeddings_path: data/entities/entity_embeddings.pt
+  entity_faiss_index_path: data/entities/entity_faiss.index
+  entity_graph_path: data/graph/entity_graph.pt
+  entity_meta_path: data/entities/entity_meta.json
+  entity_neighbors_mutual_path: data/entities/entity_neighbors_mutual.npy
+  entity_neighbors_path: data/entities/entity_neighbors.npy
+  entity_text_template: a photo of {}
+  faiss_batch_size: 4096
+  k_sem: 16
+  max_samples: null
+  min_df: 5
+  normalize_embeddings: true
+  verbose: true
+  vocab_path: data/entities/entity_vocab.json
 fusion:
-  # Default retrieval mode (clip_only, hybrid, clip_kg, or full)
   default_mode: full
-  
-  # Per-mode fusion weights
-  # Each mode specifies weights for three signals: clip, stage2 (BLIP-2), kg
   modes:
-    # Mode 1: CLIP-only (no BLIP-2, no KG)
-    clip_only:
-      w_clip: 1.0
-      w_stage2: 0.0
-      w_kg: 0.0
-    
-    # Mode 2: Hybrid (CLIP + BLIP-2, no KG)
-    hybrid:
-      w_clip: 0.7
-      w_stage2: 0.3
-      w_kg: 0.0
-    
-    # Mode 3: CLIP + KG (no BLIP-2)
     clip_kg:
       w_clip: 0.7
-      w_stage2: 0.0
       w_kg: 0.3
-    
-    # Mode 4: Full hybrid (CLIP + BLIP-2 + KG)
+      w_blip2: 0.0  # BLIP-2 reranker weight
+      w_stage2: 0.0  # Legacy alias for w_blip2
+    clip_only:
+      w_clip: 1.0
+      w_kg: 0.0
+      w_blip2: 0.0  # BLIP-2 reranker weight
+      w_stage2: 0.0  # Legacy alias for w_blip2
     full:
       w_clip: 0.6
-      w_stage2: 0.2
       w_kg: 0.2
-
-# ============================================================================
-# PHASE 5 CONFIGURATION (v3.1)
-# ============================================================================
-# Configuration for Phase 5 vision-grounded entity graph and hybrid retrieval
-# ============================================================================
-
+      w_blip2: 0.2  # BLIP-2 reranker weight
+      w_stage2: 0.2  # Legacy alias for w_blip2
+    hybrid:
+      w_clip: 0.7
+      w_kg: 0.0
+      w_blip2: 0.3  # BLIP-2 reranker weight
+      w_stage2: 0.3  # Legacy alias for w_blip2
+graph_search:
+  B: 20
+  H_max: 2
+  K_seed: 10
+  N_max: 200
+  T_cap_ms: 150
+  decay: 0.85
+  # Edge family weights (3 families: sem, cooc_caption, cooc_vision)
+  type_weight_sem: 1.0
+  type_weight_cooc_caption: 0.7
+  type_weight_cooc_vision: 0.7
+  # Legacy unified weight (for backward compatibility)
+  type_weight_cooc: 0.7
 phase5:
-  # -----------------------------------------------------------------------
-  # CANDIDATE GENERATION
-  # -----------------------------------------------------------------------
-  # Controls how many entities to consider per image for visual grounding
-  candidates:
-    # vis_prior_topK: max entities from visual prior (high P(vis|e)) to consider
-    vis_prior_topK: 50
-    # tau_vis: min confidence threshold for visual prior filtering
-    tau_vis: 0.20
-    # C_max: hard cap on total candidate phrases per image
-    C_max: 128
-
-  # -----------------------------------------------------------------------
-  # SAFE NEIGHBORS (Entity Similarity Filtering)
-  # -----------------------------------------------------------------------
-  # Filters entity neighbors based on semantic similarity for expansion
-  safe_neighbors:
-    # tau_sim: minimum cosine similarity for neighbor inclusion
-    tau_sim: 0.25  # placeholder; tune after measuring similarity distribution
-    # use_mutual_knn: require bidirectional k-NN for safer neighbors
-    use_mutual_knn: true
-    # min_df_vis: minimum visual document frequency for neighbor eligibility
-    min_df_vis: 5
-    # require_in_vis_prior: if true, only expand to entities in visual prior
-    require_in_vis_prior: false
-
-  # -----------------------------------------------------------------------
-  # DETECTOR (Open-Vocabulary Object Detection)
-  # -----------------------------------------------------------------------
-  # Settings for OWL-ViT or other open-vocabulary detectors
-  detector:
-    # model_id: identifier for detector model (e.g., "owlvit", "owlvit-large")
-    model_id: "owlvit"
-    # batch_size_images: number of images to process in parallel
-    batch_size_images: 8
-    # batch_size_phrases: number of phrase prompts per batch
-    batch_size_phrases: 128
-    # cache_dir: directory for model weights/cache
-    cache_dir: "data/vision/cache"
-    # raw_shards_dir: directory for raw detection outputs (before postprocessing)
-    raw_shards_dir: "data/vision/raw_shards"
-    # post_shards_dir: directory for postprocessed detection outputs
-    post_shards_dir: "data/vision/post_shards"
-    # shard_size: number of images per shard file
-    shard_size: 500
-
-  # -----------------------------------------------------------------------
-  # NEGATIVE CONTROLS (Noise Floor Estimation)
-  # -----------------------------------------------------------------------
-  # Used to estimate baseline noise from random/nonsense phrases
-  negative_controls:
-    # null_phrases: list of nonsense/random phrases for noise estimation
-    null_phrases:
-      - "xyzzy nonsense phrase 1"
-      - "blark random phrase 2"
-      - "qwerty meaningless phrase 3"
-    # noise_percentile: percentile of null phrase scores to use as noise floor
-    noise_percentile: 95
-    # delta: safety margin above noise floor for presence threshold
-    delta: 0.05
-
-  # -----------------------------------------------------------------------
-  # THRESHOLDS (Presence Detection Strategy)
-  # -----------------------------------------------------------------------
-  # Controls how to set per-phrase presence thresholds
-  thresholds:
-    # strategy: "grouped" (per phrase-type group) or "global" (single threshold)
-    strategy: "grouped"
-    # objective: "fixed_fpr" (false positive rate) or "precision"
-    objective: "fixed_fpr"
-    # target_fpr: target false positive rate (if objective=fixed_fpr)
-    target_fpr: 0.05
-    # target_precision: target precision (if objective=precision)
-    target_precision: 0.90
-    # min_support: minimum number of positive examples required for threshold fitting
-    min_support: 200
-
-  # -----------------------------------------------------------------------
-  # BINDING (Attribute-Object Binding Verification)
-  # -----------------------------------------------------------------------
-  # Settings for verifying color-object bindings in visual regions
   binding:
-    # enable: toggle binding verification (Day 10+)
+    clip_fallback:
+      enable: true
+      prompt_template: a photo of a {attr} {obj}
     enable: false
-    # topN_images: number of top-ranked images to verify bindings for
-    topN_images: 50
-    # topB_boxes: number of top-scored boxes per image to check
-    topB_boxes: 5
-    # hsv_ranges: HSV color ranges for attribute verification
     hsv_ranges:
-      red:
-        h_min: 0
-        h_max: 10  # incomplete for wrap-around reds; full schema when verifier implemented
-        s_min: 50
-        v_min: 50
       blue:
-        h_min: 100
         h_max: 130
+        h_min: 100
         s_min: 50
         v_min: 50
       green:
-        h_min: 50
         h_max: 80
+        h_min: 50
         s_min: 40
         v_min: 40
-      yellow:
-        h_min: 20
-        h_max: 40
-        s_min: 50
-        v_min: 50
       orange:
-        h_min: 10
         h_max: 25
+        h_min: 10
         s_min: 50
         v_min: 50
-      # Add more colors as needed
-    # clip_fallback: use CLIP region similarity if HSV matching fails
-    clip_fallback:
-      enable: true
-      prompt_template: "a photo of a {attr} {obj}"
-
-  # -----------------------------------------------------------------------
-  # PMI (Pointwise Mutual Information for Graph Pruning)
-  # -----------------------------------------------------------------------
-  # Controls how to prune spurious co-occurrence edges using PMI/NPMI
+      red:
+        h_max: 10
+        h_min: 0
+        s_min: 50
+        v_min: 50
+      yellow:
+        h_max: 40
+        h_min: 20
+        s_min: 50
+        v_min: 50
+    topB_boxes: 5
+    topN_images: 50
+  candidates:
+    C_max: 128
+    tau_vis: 0.2
+    vis_prior_topK: 50
+    # Global probes and stable priority union controls
+    global_topN: 50
+    # Priority order for candidate union (stable across runs)
+    priority_order: ["caption", "visual_prior", "safe_neighbors", "global"]
+    # Optional per-source caps (null = no cap)
+    max_caption: null
+    max_visual_prior: null
+    max_safe_neighbors: null
+    max_global: null
+  detector:
+    batch_size_images: 8
+    batch_size_phrases: 128
+    cache_dir: data/vision/cache
+    model_id: owlvit
+    # Split-safe shard directory templates (prevent train/val/test leakage)
+    raw_shards_dir_template: "data/vision/{split}_raw_shards"
+    post_shards_dir_template: "data/vision/{split}_post_shards"
+    # Legacy (not split-safe); prefer *_dir_template for new code
+    post_shards_dir: data/vision/post_shards
+    raw_shards_dir: data/vision/raw_shards
+    shard_size: 500
+  negative_controls:
+    delta: 0.05
+    noise_percentile: 95
+    null_phrases:
+    - xyzzy nonsense phrase 1
+    - blark random phrase 2
+    - qwerty meaningless phrase 3
   pmi:
-    # smoothing_eps: Laplace smoothing parameter for PMI calculation
-    smoothing_eps: 1.0
-    # npmi_min: minimum NPMI threshold for keeping edges
-    npmi_min: 0.20
-    # npmi_min_stop: stricter NPMI threshold for stop-nodes (high-degree)
-    npmi_min_stop: 0.20
-    # degree_cap: maximum degree per node (prune lowest-NPMI edges if exceeded)
     degree_cap: 500
-    # per_node_topk: keep at most top-k edges per node by NPMI
+    npmi_min: 0.2
+    npmi_min_stop: 0.2
     per_node_topk: 200
-    # stop_nodes_topM_df: nodes with document frequency in top M are stop-nodes
+    smoothing_eps: 1.0
     stop_nodes_topM_df: 50
+  safe_neighbors:
+    min_df_vis: 5
+    require_in_vis_prior: false
+    tau_sim: 0.25
+    use_mutual_knn: true
+  thresholds:
+    min_support: 200
+    objective: fixed_fpr
+    strategy: grouped
+    target_fpr: 0.05
+    target_precision: 0.9
+query_enrichment:
+  K_seed_raw: 32
+  M_enrich: 8
+  enabled: true
+  image_template: photo of {entities}
+  log_examples: true
+  text_template: '{query}. Related: {entities}'
+  w_freq: 0.5
+  w_sim: 0.5
