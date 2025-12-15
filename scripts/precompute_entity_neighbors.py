@@ -396,10 +396,24 @@ def atomic_write_faiss(index: Any, path: Path) -> None:
         index: FAISS index object.
         path: Output path for FAISS index.
     """
+    import tempfile
+    import shutil
+    
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = path.with_name(path.name + ".tmp")
-    save_faiss_index(index, tmp_path)
-    tmp_path.replace(path)
+    
+    # Write to system temp directory first to avoid path encoding issues with FAISS
+    with tempfile.NamedTemporaryFile(mode='wb', delete=False, suffix='.index') as tmp:
+        tmp_path_str = tmp.name
+    
+    try:
+        # FAISS write to temp location
+        save_faiss_index(index, Path(tmp_path_str))
+        # Move to final location
+        shutil.move(tmp_path_str, str(path))
+    finally:
+        # Clean up temp file if it still exists
+        if Path(tmp_path_str).exists():
+            Path(tmp_path_str).unlink()
 
 
 def atomic_write_npy(arr: np.ndarray, path: Path) -> None:
