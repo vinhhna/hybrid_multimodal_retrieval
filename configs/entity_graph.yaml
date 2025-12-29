@@ -90,7 +90,7 @@ phase5:
   candidates:
     C_max: 128
     tau_vis: 0.2
-    vis_prior_topK: 50
+    visual_prior_topK: 50  # Day 5: renamed from vis_prior_topK for consistency
     # Global probes and stable priority union controls
     global_topN: 50
     # Priority order for candidate union (stable across runs)
@@ -127,16 +127,24 @@ phase5:
     smoothing_eps: 1.0
     stop_nodes_topM_df: 50
   safe_neighbors:
-    min_df_vis: 5
-    require_in_vis_prior: false
-    tau_sim: 0.25
+    enabled: true  # Day 5: enable safe neighbor expansion
+    seed_sources: ["caption"]  # Day 5: default to caption only; can add "visual_prior"
     use_mutual_knn: true
+    require_in_vis_prior: false  # Day 5: pixel anchoring (keep only neighbors also in visual prior)
+    tau_sim: null  # Day 5: similarity threshold (null = disabled; requires precomputed sims if set)
+    min_df_vis: 5  # Legacy: kept for backward compatibility
   thresholds:
     min_support: 200
     objective: fixed_fpr
     strategy: grouped
-    target_fpr: 0.05
-    target_precision: 0.9
+    target_fpr: 0.05  # Moved from artifacts (used by threshold fitting, not candidate gen)
+    target_precision: 0.9  # Moved from artifacts
+  # Day 5: Artifact paths for candidate generation
+  artifacts:
+    entity_faiss_index_path: data/entities/entity_faiss.index
+    entity_neighbors_path: data/entities/entity_neighbors.npy
+    entity_neighbors_mutual_path: data/entities/entity_neighbors_mutual.npy
+    entity_global_list_path: null  # Optional cache; computed from context if absent
 query_enrichment:
   K_seed_raw: 32
   M_enrich: 8
