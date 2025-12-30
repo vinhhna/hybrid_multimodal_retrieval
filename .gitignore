@@ -76,6 +76,11 @@ VG-SGG-with-attri.h5
 VG-SGG-dicts-with-attri.json
 image_data.json
 
+# GQA Data files (large JSON and pickle files)
+sceneGraphs/train_sceneGraphs.json
+sceneGraphs/val_sceneGraphs.json
+experiments/*/gqa_lightrag.gpickle
+
 # Graph artifacts
 output/
 graphs/

@@ -1,0 +1,10 @@
+{
+  "total_images": 10000,
+  "total_objects": 162453,
+  "instance_nodes": 162453,
+  "concept_nodes": 1525,
+  "attribute_nodes": 607,
+  "instance_of_edges": 162453,
+  "has_attribute_edges": 89605,
+  "semantic_relation_edges": 495798
+}
