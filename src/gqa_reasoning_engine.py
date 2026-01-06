@@ -24,7 +24,7 @@ from dataclasses import dataclass, field
 try:
     import networkx as nx
 except ImportError:
-    raise ImportError("Vui lòng cài đặt networkx: pip install networkx")
+    raise ImportError("Please install networkx: pip install networkx")
 
 
 # ============================================================================
@@ -89,11 +89,14 @@ class ReasoningResult:
 # GQA REASONING ENGINE CLASS
 # ============================================================================
 
+# Get the project root directory (parent of src/)
+PROJECT_ROOT = Path(__file__).parent.parent
+
 # Định nghĩa các đường dẫn đồ thị theo scale
 GRAPH_PATHS = {
-    '1k': 'experiments/sample_1k/gqa_lightrag.gpickle',
-    '10k': 'experiments/sample_10k/gqa_lightrag.gpickle',
-    'full': 'experiments/full/gqa_lightrag.gpickle',
+    '1k': PROJECT_ROOT / 'experiments/sample_1k/gqa_lightrag.gpickle',
+    '10k': PROJECT_ROOT / 'experiments/sample_10k/gqa_lightrag.gpickle',
+    'full': PROJECT_ROOT / 'experiments/full/gqa_lightrag.gpickle',
 }
 
 def get_graph_path(scale: str = '1k') -> str:
@@ -103,7 +106,7 @@ def get_graph_path(scale: str = '1k') -> str:
     Args:
         scale: '1k', '10k', hoặc 'full'
     """
-    return GRAPH_PATHS.get(scale, GRAPH_PATHS['1k'])
+    return str(GRAPH_PATHS.get(scale, GRAPH_PATHS['1k']))
 
 
 class GQA_Reasoning_Engine:
@@ -149,14 +152,14 @@ class GQA_Reasoning_Engine:
         self._build_cache()
     
     def _load_graph(self):
-        """Load đồ thị từ file pickle."""
+        """Load graph from pickle file."""
         if not self.graph_path.exists():
             raise FileNotFoundError(
-                f"File not found đồ thị: {self.graph_path}\n"
-                "Vui lòng chạy gqa_lightrag_kg.py trước để tạo đồ thị."
+                f"Graph file not found: {self.graph_path}\n"
+                "Please run gqa_lightrag_builder.py first to create the graph."
             )
         
-        print(f"📂 Đang load đồ thị từ: {self.graph_path}")
+        print(f"📂 Loading graph from: {self.graph_path}")
         
         with open(self.graph_path, 'rb') as f:
             self.graph = pickle.load(f)
@@ -167,7 +170,7 @@ class GQA_Reasoning_Engine:
     
     def _build_cache(self):
         """Build cache để tăng tốc truy vấn."""
-        print("   🔧 Đang xây dựng cache...")
+        print("   🔧 Building cache...")
         
         for node_id, data in self.graph.nodes(data=True):
             node_type = data.get('node_type', '')
@@ -322,13 +325,14 @@ class GQA_Reasoning_Engine:
         
         # Step 2: Lọc theo attributes nếu có
         if attributes:
+            hop_counter = 2 if concept else 1  # Start from HOP 2 if we had concept, else HOP 1
             for i, attr in enumerate(attributes):
                 attr_node_id = self._get_attribute_node_id(attr)
                 
                 if attr_node_id in self._attribute_nodes:
                     attr_instances = self._get_instances_by_attribute(attr)
                     trace.append(
-                        f"HOP {len(trace)+1}: Từ Global Attribute '{attr_node_id}' → "
+                        f"HOP {hop_counter}: Từ Global Attribute '{attr_node_id}' → "
                         f"Tìm thấy {len(attr_instances)} instances qua cạnh 'has_attribute'"
                     )
                     
@@ -339,8 +343,13 @@ class GQA_Reasoning_Engine:
                         trace.append(
                             f"         → Giao với tập hiện tại → Còn {len(candidates)} instances"
                         )
+                    hop_counter += 1
                 else:
-                    trace.append(f"HOP {len(trace)+1}: Không tìm thấy Attribute Node '{attr_node_id}'")
+                    trace.append(
+                        f"HOP {hop_counter}: Không tìm thấy Attribute Node '{attr_node_id}' "
+                        f"(bỏ qua attribute này, không ảnh hưởng đến kết quả)"
+                    )
+                    hop_counter += 1
         
         # Step 3: Format kết quả
         if candidates is None:
@@ -858,9 +867,13 @@ class GQA_Reasoning_Engine:
         
         # Step 3: Lấy hiệu
         result_images = images_with_present - images_with_absent
+        images_overlap = images_with_present & images_with_absent
         trace.append(
-            f"HOP 3: Phép hiệu {len(images_with_present)} - {len(images_with_absent)} "
-            f"= {len(result_images)} images thỏa mãn"
+            f"HOP 3: Images có cả 2 khái niệm: {len(images_overlap)} images"
+        )
+        trace.append(
+            f"       Phép hiệu: {len(images_with_present)} (có '{concept_present}') "
+            f"- {len(images_overlap)} (có cả 2) = {len(result_images)} images thỏa mãn"
         )
         
         # Step 4: Thu thập thông tin chi tiết
@@ -919,11 +932,11 @@ class GQA_Reasoning_Engine:
         2. Tìm tất cả images chứa context_b (vd: living room) → Lọc instances của target_concept  
         3. So sánh số lượng hoặc phân bố thuộc tính giữa 2 tập
         
-        Lưu ý: "Bối cimages" được xác định bằng cách tìm các images có chứa concept bối cimages đó.
+        Lưu ý: "Bối cảnh" được xác định bằng cách tìm các images có chứa concept bối cảnh đó.
         
         Args:
-            context_a: Bối cimages thứ nhất (vd: "kitchen", "bedroom")
-            context_b: Bối cimages thứ hai (vd: "living room", "bathroom")
+            context_a: Bối cảnh thứ nhất (vd: "kitchen", "bedroom")
+            context_b: Bối cảnh thứ hai (vd: "living room", "bathroom")
             target_concept: Concept cần so sánh (vd: "chair", "table")
             compare_attribute: Thuộc tính cần so sánh (optional, vd: "white")
             
@@ -941,7 +954,7 @@ class GQA_Reasoning_Engine:
                 images_context_a.add(img_id)
         
         trace.append(
-            f"HOP 1: Tìm bối cimages '{context_a}' → "
+            f"HOP 1: Tìm bối cảnh '{context_a}' → "
             f"{len(context_a_instances)} instances trong {len(images_context_a)} images"
         )
         
@@ -954,11 +967,11 @@ class GQA_Reasoning_Engine:
                 images_context_b.add(img_id)
         
         trace.append(
-            f"HOP 2: Tìm bối cimages '{context_b}' → "
+            f"HOP 2: Tìm bối cảnh '{context_b}' → "
             f"{len(context_b_instances)} instances trong {len(images_context_b)} images"
         )
         
-        # Step 3: Tìm target_concept trong mỗi bối cimages
+        # Step 3: Tìm target_concept trong mỗi bối cảnh
         target_instances = self._get_instances_by_concept(target_concept)
         trace.append(
             f"HOP 3: Tìm target concept '{target_concept}' → {len(target_instances)} instances tổng cộng"
@@ -991,7 +1004,7 @@ class GQA_Reasoning_Engine:
                 })
         
         trace.append(
-            f"HOP 4: Lọc '{target_concept}' theo bối cimages → "
+            f"HOP 4: Lọc '{target_concept}' theo bối cảnh → "
             f"Trong '{context_a}': {len(targets_in_a)}, Trong '{context_b}': {len(targets_in_b)}"
         )
         
@@ -1030,7 +1043,7 @@ class GQA_Reasoning_Engine:
         # Kết luận
         if len(targets_in_a) == 0 and len(targets_in_b) == 0:
             trace.append(
-                f"FINAL: Không tìm thấy '{target_concept}' trong cả hai bối cimages trong tập mẫu"
+                f"FINAL: Không tìm thấy '{target_concept}' trong cả hai bối cảnh trong tập mẫu"
             )
         else:
             winner = comparison_result['winner_by_count']
@@ -1041,7 +1054,7 @@ class GQA_Reasoning_Engine:
             )
         
         # Create câu hỏi
-        question = f"So sánh số lượng '{target_concept}' trong bối cimages '{context_a}' và '{context_b}'"
+        question = f"So sánh số lượng '{target_concept}' trong bối cảnh '{context_a}' và '{context_b}'"
         if compare_attribute:
             question = f"So sánh thuộc tính '{compare_attribute}' của '{target_concept}' trong '{context_a}' và '{context_b}'"
         
@@ -1798,8 +1811,8 @@ def run_part2_demo(engine: Optional[GQA_Reasoning_Engine] = None, scale: str = '
     print("              QUERY TYPE 6: COMPARATIVE (SO SÁNH)")
     print("🔹" * 35)
     
-    # Câu 1: So sánh số lượng thực thể "chair" trong bối cimages "kitchen" và "living room"
-    print("\n📝 Câu 6.1: So sánh số lượng thực thể 'chair' trong bối cimages 'kitchen' và 'living room'")
+    # Câu 1: So sánh số lượng thực thể "chair" trong bối cảnh "kitchen" và "living room"
+    print("\n📝 Câu 6.1: So sánh số lượng thực thể 'chair' trong bối cảnh 'kitchen' và 'living room'")
     result = engine.compare_contexts(
         context_a="kitchen",
         context_b="living room",

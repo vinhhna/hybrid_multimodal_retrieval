@@ -499,7 +499,7 @@ class NaturalLanguageParser:
                         'category': category,
                         'child_concepts': self.get_category_members(category)
                     }
-                    confidence_modifier = 1.2  # Boost confidence
+                    confidence_modifier = 1.0  # Maximum confidence (valid category)
                 else:
                     params = {'category': category}
                     confidence_modifier = 0.5  # Lower confidence
@@ -509,9 +509,11 @@ class NaturalLanguageParser:
                 # General rare relations query
                 top_n_match = re.search(r'top\s+(\d+)', normalized)
                 params = {
-                    'find_rare_relations': True,
-                    'top_n': int(top_n_match.group(1)) if top_n_match else 5
+                    'find_rare_relations': True
                 }
+                # Only set top_n if explicitly specified in query
+                if top_n_match:
+                    params['top_n'] = int(top_n_match.group(1))
             elif len(groups) >= 3:
                 params = {
                     'subject_concept': groups[0],

@@ -26,12 +26,12 @@ from typing import Dict, List, Set, Tuple, Any, Optional
 try:
     import networkx as nx
 except ImportError:
-    raise ImportError("Vui lòng cài đặt networkx: pip install networkx")
+    raise ImportError("Please install networkx: pip install networkx")
 
 try:
     from tqdm import tqdm
 except ImportError:
-    raise ImportError("Vui lòng cài đặt tqdm: pip install tqdm")
+    raise ImportError("Please install tqdm: pip install tqdm")
 
 
 class GQALightRAGGraphBuilder:

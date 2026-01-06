@@ -18,8 +18,8 @@ import json
 from typing import Dict, Any, Optional, List
 from dataclasses import dataclass, asdict
 
-from gqa_nl_parser import NaturalLanguageParser, ParseResult, QueryType
-from gqa_reasoning_engine import GQA_Reasoning_Engine, ReasoningResult
+from .gqa_nl_parser import NaturalLanguageParser, ParseResult, QueryType
+from .gqa_reasoning_engine import GQA_Reasoning_Engine, ReasoningResult
 
 
 @dataclass
@@ -84,12 +84,13 @@ class QueryInterface:
             print(f"       Nodes: {self.engine.graph.number_of_nodes():,}")
             print(f"       Edges: {self.engine.graph.number_of_edges():,}")
     
-    def query(self, natural_language_query: str) -> QueryResponse:
+    def query(self, natural_language_query: str, limit: int = 10) -> QueryResponse:
         """
         Process a natural language query and return results.
         
         Args:
             natural_language_query: English query string
+            limit: Maximum number of results to return (default: 10)
             
         Returns:
             QueryResponse with results and metadata
@@ -112,7 +113,7 @@ class QueryInterface:
         
         # Step 2: Execute the appropriate query
         try:
-            result = self._execute_query(parse_result)
+            result = self._execute_query(parse_result, limit=limit)
             
             return QueryResponse(
                 success=True,
@@ -138,8 +139,14 @@ class QueryInterface:
                 error_message=f"Error executing query: {str(e)}"
             )
     
-    def _execute_query(self, parse_result: ParseResult) -> ReasoningResult:
-        """Execute query based on parsed result"""
+    def _execute_query(self, parse_result: ParseResult, limit: int = 10) -> ReasoningResult:
+        """
+        Execute query based on parsed result.
+        
+        Args:
+            parse_result: Parsed query result
+            limit: Maximum number of results to return
+        """
         params = parse_result.params
         query_type = parse_result.query_type
         
@@ -147,7 +154,7 @@ class QueryInterface:
             return self.engine.entity_search(
                 concept=params.get('concept'),
                 attributes=params.get('attributes', []),
-                limit=10
+                limit=limit
             )
             
         elif query_type == QueryType.STATISTICAL_KNOWLEDGE:
@@ -161,7 +168,7 @@ class QueryInterface:
             return self.engine.similarity_search(
                 concept=params.get('concept'),
                 attributes=params.get('attributes', []),
-                limit=10
+                limit=limit
             )
             
         elif query_type == QueryType.RELATIONAL_PATH:
@@ -170,14 +177,14 @@ class QueryInterface:
                 target_concept=params.get('target_concept'),
                 via_relation=params.get('via_relation'),
                 max_hops=2,
-                limit=5
+                limit=min(limit, 20)  # Cap at 20 for path queries to avoid too many results
             )
             
         elif query_type == QueryType.NEGATIVE_CONSTRAINTS:
             return self.engine.negative_constraints(
                 concept_present=params.get('concept_present'),
                 concept_absent=params.get('concept_absent'),
-                limit=10
+                limit=limit
             )
             
         elif query_type == QueryType.COMPARATIVE:
@@ -211,14 +218,14 @@ class QueryInterface:
             
             return self.engine.get_hierarchical_entities(
                 parent_category=category,
-                limit=5
+                limit=limit
             )
             
         elif query_type == QueryType.ANOMALY_DETECTION:
             if params.get('find_rare_relations'):
                 return self.engine.find_anomalies(
                     min_frequency=2,
-                    limit=params.get('top_n', 5)
+                    limit=params.get('top_n', limit)  # Use top_n if specified in query, otherwise use limit parameter
                 )
             else:
                 return self.engine.find_specific_anomaly(
@@ -235,13 +242,13 @@ class QueryInterface:
                     relation=params.get('relation'),
                     related_concept=params.get('related_concept'),
                     related_attributes=params.get('related_attributes', []),
-                    limit=10
+                    limit=limit
                 )
             else:
                 return self.engine.multi_constraint_search(
                     name=params.get('concept'),
                     required_attributes=params.get('attributes', []),
-                    limit=10
+                    limit=limit
                 )
         
         # Default: return empty result
