@@ -65,8 +65,7 @@ class EngineAdapter:
 
         # Import engine components
         try:
-            from basic_queries.reasoning_engine import GQA_Reasoning_Engine
-            from basic_queries.gqa_query_interface import QueryInterface
+            from lightrag_gqa.basic_queries import GQA_Reasoning_Engine, QueryInterface
         except ImportError as e:
             raise ImportError(f"Failed to import engine modules: {e}")
 
