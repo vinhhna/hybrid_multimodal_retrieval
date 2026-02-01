@@ -1,0 +1,59 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lightrag-gqa"
+version = "1.0.0"
+description = "Multi-Scale Knowledge Graph System for Visual Question Answering on GQA Dataset"
+readme = "README.md"
+requires-python = ">=3.8"
+license = {text = "MIT"}
+authors = [
+    {name = "GQA LightRAG Project"}
+]
+keywords = ["knowledge-graph", "visual-qa", "gqa", "lightrag", "multimodal"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+dependencies = [
+    "networkx>=3.0",
+    "numpy>=1.20.0",
+    "tqdm>=4.60.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "jupyter>=1.0.0",
+    "ipykernel>=6.0.0",
+    "pytest>=7.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/vinhhna/hybrid_multimodal_retrieval"
+Repository = "https://github.com/vinhhna/hybrid_multimodal_retrieval"
+
+[project.scripts]
+lightrag-gqa-build = "lightrag_gqa.cli.build_graph:main"
+lightrag-gqa-query = "lightrag_gqa.cli.query:main"
+lightrag-gqa-eval = "lightrag_gqa.cli.eval:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["lightrag_gqa*"]
+exclude = ["tests*"]
+
+[tool.setuptools.package-data]
+lightrag_gqa = ["evaluation/configs/*.yaml", "evaluation/data/**/*"]

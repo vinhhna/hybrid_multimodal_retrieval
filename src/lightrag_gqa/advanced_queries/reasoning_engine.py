@@ -33,7 +33,7 @@ try:
 except ImportError:
     raise ImportError("Please install networkx: pip install networkx")
 
-from basic_queries.gqa_reasoning_engine import GQA_Reasoning_Engine, ReasoningResult
+from lightrag_gqa.basic_queries.reasoning_engine import GQA_Reasoning_Engine, ReasoningResult
 
 
 # ============================================================================

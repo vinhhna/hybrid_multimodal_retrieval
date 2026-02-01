@@ -1,0 +1,99 @@
+# Evaluation Framework v0.1 Configuration
+# ==========================================
+
+# Paths configuration
+paths:
+  # Scene graphs for ground truth (DO NOT use questions1.2/)
+  scenegraphs_train: "sceneGraphs/train_sceneGraphs.json"
+  scenegraphs_val: "sceneGraphs/val_sceneGraphs.json"
+
+  # Knowledge graph to evaluate (choose scale)
+  kg_graph_path: "experiments/sample_10k/gqa_lightrag.gpickle"
+  # Alternatives:
+  # kg_graph_path: "experiments/sample_1k/gqa_lightrag.gpickle"
+  # kg_graph_path: "experiments/full/gqa_lightrag.gpickle"
+
+  # Output directories
+  suites_dir: "evaluation_v0_1/data/suites"
+  results_dir: "evaluation_v0_1/results"
+
+  # Normalization data
+  synonym_map: "evaluation_v0_1/data/synonym_map.json"
+
+# Suite generation settings
+suite_sizes:
+  ranked_entity_attr_n: 500
+  ranked_negative_n: 500
+  scalar_stats_n: 200
+  path_n: 200
+  subgraph_n: 200
+
+# Evaluation settings
+evaluation:
+  # k values for ranking metrics (P@k, R@k, NDCG@k)
+  k_values: [1, 5, 10, 20, 50]
+
+  # Default limit for ranked queries
+  default_k: 50
+
+  # Maximum hops for path queries
+  max_path_hops: 3
+
+# Reproducibility
+random_seed: 1337
+
+# Negative constraint safeguards
+# (To reduce false negatives from missing annotations)
+negative_safeguards:
+  # Minimum frequency for concepts used in must_not
+  min_concept_freq: 200
+
+  # Minimum gold set size (skip queries with smaller gold sets)
+  min_gold_size: 50
+
+  # Only use top-N most frequent concepts for negation
+  top_n_concepts_for_negation: 100
+
+# Normalization settings
+normalization:
+  # Whether to apply synonym mapping
+  use_synonyms: true
+
+  # Whether to lowercase terms
+  lowercase: true
+
+  # Whether to strip whitespace
+  strip: true
+
+# Scene graph loading
+scenegraph_loading:
+  # Which split to use for suite generation
+  # Options: "val", "train", "both"
+  # NOTE: Must match the KG source! sample_10k graph is built from train_sceneGraphs.json
+  split_for_suites: "train"
+
+  # Stream loading for large files (memory efficient)
+  stream_loading: false
+
+# Logging
+logging:
+  # Verbosity level: 0=quiet, 1=normal, 2=verbose
+  verbosity: 1
+
+  # Log file (optional)
+  log_file: null
+
+# Parser comparison
+parsers:
+  # Heuristic parser from repo
+  heuristic:
+    enabled: true
+    module: "src.gqa_nl_parser"
+    class: "NaturalLanguageParser"
+
+  # LLM parser stub (placeholder for future)
+  llm_stub:
+    enabled: true
+    # When real LLM is integrated, add API settings here
+    fallback_to_heuristic: true
+

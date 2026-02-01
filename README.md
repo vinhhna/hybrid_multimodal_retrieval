@@ -1,67 +1,80 @@
-# GQA LightRAG: Multimodal Knowledge Graph System
-
-A comprehensive Multimodal Knowledge Graph system built on the GQA (Visual Reasoning) dataset using LightRAG architecture. Supports natural language queries in English with **14 distinct query types** (9 basic + 5 advanced) for visual reasoning tasks.
+# LightRAG-GQA: Multi-Scale Knowledge Graph for Visual QA
 
 [![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/)
 [![NetworkX](https://img.shields.io/badge/NetworkX-3.0+-green.svg)](https://networkx.org/)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
+A comprehensive multimodal knowledge graph system built on the GQA dataset using LightRAG architecture. Supports **14 query types** (9 basic + 5 advanced) with natural language interface and full reasoning traces.
+
 ## 🎯 Features
 
-- **Multi-Scale Knowledge Graphs**: Build graphs at 1K, 10K, or full scale (74,942 images)
-- **LightRAG Architecture**: 2-tier structure with Instance and Global levels
-- **14 Query Types**: 9 basic query types + 5 advanced reasoning types
-- **Natural Language Interface**: Query in plain English without writing code
-- **Advanced Graph Reasoning**: Multi-hop chains, pattern matching, scene comparison, counterfactuals
-- **Comprehensive Reasoning**: Full reasoning traces with step-by-step explanations
-- **Production Ready**: Tested on full GQA dataset with optimized performance
+- **Multi-Scale Knowledge Graphs**: 1K, 10K, or full scale (74,942 images)
+- **LightRAG Architecture**: 2-tier structure (Instance + Global levels)
+- **14 Query Types**: Complete coverage from entity search to counterfactual reasoning
+- **Natural Language Interface**: Query in plain English
+- **CLI Tools**: One-command graph building, querying, and evaluation
+- **Production Ready**: Optimized for large-scale graphs (100K+ nodes)
 
-## 📁 Project Structure
+## 📦 Installation
 
-```
-hybrid_multimodal_retrieval/
-├── basic_queries/               # 📦 9 Standard Query Types
-│   ├── __init__.py             
-│   ├── README.md                # Documentation for basic queries
-│   ├── gqa_lightrag_builder.py  # Multi-scale KG builder
-│   ├── gqa_reasoning_engine.py  # Basic query engine (9 types)
-│   ├── gqa_nl_parser.py         # Natural language parser
-│   └── gqa_query_interface.py   # CLI and interactive interface
-│
-├── advanced_queries/            # 🧠 5 Advanced Reasoning Types
-│   ├── __init__.py             
-│   ├── README.md                # Documentation for advanced queries
-│   ├── advanced_reasoning_engine.py  # Advanced reasoning engine
-│   ├── demo_advanced_reasoning.ipynb # Interactive demos
-│   └── evaluation_advanced_reasoning.ipynb # Comprehensive evaluation
-│
-├── scripts/                     # Demo and test scripts
-│   ├── demo_nl_interface.py    # Comprehensive demo
-│   ├── test_all_queries.py     # Automated testing
-│   └── run_demo_and_save.py    # UTF-8 demo wrapper
-│
-├── evaluation_v0_1/            # Evaluation framework (CQR-based)
-│   ├── run_evaluation.py       # Main evaluation runner
-│   ├── configs/                # Evaluation configurations
-│   └── results/                # Evaluation results
-│
-├── experiments/                 # Saved knowledge graphs
-│   ├── sample_1k/              # 1,000 image graph (6.15 MB)
-│   ├── sample_10k/             # 10,000 image graph (61.86 MB)
-│   └── full/                   # 74,942 image graph (470.61 MB)
-│
-├── sceneGraphs/                # GQA dataset files
-│   ├── train_sceneGraphs.json
-│   └── val_sceneGraphs.json
-│
-└── data/                       # Output and cache directory
+```bash
+# Clone repository
+git clone https://github.com/vinhhna/hybrid_multimodal_retrieval.git
+cd hybrid_multimodal_retrieval
+
+# Install package in development mode
+pip install -e .
+
+# Or install with optional dependencies
+pip install -e ".[dev]"
 ```
 
-## 📊 Query Types Overview
+## 🚀 Quick Start
+
+### 1. Build a Knowledge Graph
+
+```bash
+# Build 10K scale graph (recommended for testing)
+lightrag-gqa-build --scale 10k
+
+# Build 1K scale graph (fastest)
+lightrag-gqa-build --scale 1k
+
+# Build full scale graph (requires ~8GB RAM)
+lightrag-gqa-build --scale full --input sceneGraphs/train_sceneGraphs.json
+```
+
+### 2. Query the Graph
+
+```bash
+# Interactive mode
+lightrag-gqa-query --scale 10k --interactive
+
+# Single query
+lightrag-gqa-query --scale 10k --query "Find all images with dogs wearing hats"
+
+# Query specific graph file
+lightrag-gqa-query --graph experiments/sample_10k/gqa_lightrag.gpickle --query "How many people are wearing red shirts?"
+```
+
+### 3. Run Evaluation
+
+```bash
+# Run comprehensive evaluation
+lightrag-gqa-eval --config evaluation_v0_1/configs/eval.yaml
+```
+
+## 📊 Query Types
 
 ### Basic Queries (9 types)
-See [`basic_queries/README.md`](basic_queries/README.md) for details:
+
 1. **Entity Search** - Find entities by concept/attributes
+   ```python
+   from lightrag_gqa.basic_queries import GQA_Reasoning_Engine
+   engine = GQA_Reasoning_Engine(scale='10k')
+   results = engine.entity_search(concept='dog', limit=10)
+   ```
+
 2. **Statistical Queries** - Count, aggregate
 3. **Similarity & Pattern Matching** - Semantic similarity
 4. **Relational Path Discovery** - Find connections
@@ -72,261 +85,227 @@ See [`basic_queries/README.md`](basic_queries/README.md) for details:
 9. **Visual-Attribute Constraints** - Complex constraints
 
 ### Advanced Queries (5 types)
-See [`advanced_queries/README.md`](advanced_queries/README.md) for details:
-1. **Chain Reasoning** - Multi-hop traversal with constraints
-2. **Pattern Matching** - Subgraph isomorphism
-3. **Scene Comparison** - Structural similarity analysis
-4. **Counterfactual Reasoning** - What-if hypothetical queries
-5. **Centrality Queries** - Node importance metrics
 
-## 🚀 Quick Start
+10. **Chain Reasoning** - Multi-hop traversal
+    ```python
+    from lightrag_gqa.advanced_queries import AdvancedReasoningEngine
+    engine = AdvancedReasoningEngine(scale='10k')
+    result = engine.chain_reasoning(
+        start_concept='person',
+        chain=[{'relation': 'wearing', 'concept': 'shirt'}],
+        limit=10
+    )
+    ```
 
-### Installation
+11. **Pattern Matching** - Subgraph isomorphism
+12. **Scene Comparison** - Structural similarity
+13. **Counterfactual Reasoning** - What-if analysis
+14. **Centrality Queries** - Node importance
 
-```bash
-# Clone repository
-git clone https://github.com/vinhhna/hybrid_multimodal_retrieval.git
-cd hybrid_multimodal_retrieval
+## 📁 Project Structure
 
-# Install dependencies
-pip install networkx tqdm
-
-# Verify installation
-python -c "import networkx; import tqdm; print('✓ All dependencies installed')"
+```
+hybrid_multimodal_retrieval/
+├── src/lightrag_gqa/          # Main package
+│   ├── basic_queries/         # 9 standard query types
+│   │   ├── builder.py         # Graph builder
+│   │   ├── reasoning_engine.py
+│   │   ├── nl_parser.py
+│   │   └── query_interface.py
+│   ├── advanced_queries/      # 5 advanced reasoning types
+│   │   ├── reasoning_engine.py
+│   │   ├── demo_advanced_reasoning.ipynb
+│   │   └── evaluation_advanced_reasoning.ipynb
+│   ├── evaluation/            # CQR-based evaluation
+│   ├── datasets/              # GQA data loaders
+│   ├── utils/                 # Shared utilities
+│   └── cli/                   # Command-line tools
+│       ├── build_graph.py
+│       ├── query.py
+│       └── eval.py
+├── experiments/               # Saved graphs
+│   ├── sample_1k/            # 1K graph (6.15 MB)
+│   ├── sample_10k/           # 10K graph (61.86 MB)
+│   └── full/                 # Full graph (470.61 MB)
+├── sceneGraphs/              # GQA dataset
+├── evaluation_v0_1/          # Legacy evaluation (still usable)
+├── pyproject.toml            # Package configuration
+└── README.md
 ```
 
-### Build Knowledge Graph
+## 💻 Python API Examples
 
-```bash
-# Build 1K sample (fast, for testing)
-python src/gqa_lightrag_builder.py --scale 1k
-
-# Build 10K sample (medium scale)
-python src/gqa_lightrag_builder.py --scale 10k
-
-# Build full graph (production)
-python src/gqa_lightrag_builder.py --scale full
-```
-
-### Query the Knowledge Graph
-
-#### Option 1: Natural Language Interface (Recommended)
-
-```bash
-# Interactive mode
-python src/gqa_query_interface.py --scale full
-
-# Single query
-python src/gqa_query_interface.py --scale full --query "Find all red cars"
-```
-
-#### Option 2: Python API
+### Basic Usage
 
 ```python
-from src.gqa_reasoning_engine import GQA_Reasoning_Engine
+from lightrag_gqa.basic_queries import GQA_Reasoning_Engine
 
 # Initialize engine
-engine = GQA_Reasoning_Engine(scale='full')
+engine = GQA_Reasoning_Engine(scale='10k')
 
 # Entity search
-results = engine.entity_search(
-    concept='car',
-    attributes=['red', 'large'],
+results = engine.entity_search(concept='person', limit=10)
+
+# Statistical query
+stats = engine.statistical_query(
+    query_type='count_by_concept',
+    concept='dog'
+)
+
+# Path discovery
+paths = engine.relational_path_query(
+    source='person',
+    target='table',
+    max_depth=3
+)
+```
+
+### Advanced Reasoning
+
+```python
+from lightrag_gqa.advanced_queries import AdvancedReasoningEngine
+
+# Initialize advanced engine
+engine = AdvancedReasoningEngine(scale='10k')
+
+# Multi-hop chain reasoning
+result = engine.chain_reasoning(
+    start_concept='person',
+    chain=[
+        {'relation': 'wearing', 'concept': 'shirt'},
+        {'relation': 'to the left of', 'concept': 'table'}
+    ],
+    limit=5
+)
+
+# Pattern matching
+result = engine.pattern_matching(
+    pattern_nodes=['person', 'shirt', 'hat'],
+    pattern_edges=[
+        ('person', 'wearing', 'shirt'),
+        ('person', 'wearing', 'hat')
+    ],
     limit=10
 )
 
-# Statistical knowledge
-stats = engine.statistical_knowledge(
-    concept_a='man',
-    concept_b='shirt',
-    relation='wearing'
+# Scene comparison
+result = engine.scene_comparison(
+    image_id_1='2386621',
+    image_id_2='2373554'
 )
 
-# Print results
-results.print_summary()
+# Print reasoning trace
+result.print_result(verbose=True)
 ```
 
-### Run Demo
-
-```bash
-# Run all 9 query types
-python scripts/demo_nl_interface.py --scale full
-
-# Run with UTF-8 output
-python scripts/run_demo_and_save.py --scale full --output demo_results.txt
-```
-
-## 📊 Supported Query Types
-
-| # | Query Type | Description | Example |
-|---|------------|-------------|---------|
-| 1 | **Entity Search** | Find objects by concept and attributes | "Find red cars" |
-| 2 | **Statistical Knowledge** | Calculate co-occurrence probabilities | "Probability of shirt near man" |
-| 3 | **Similarity Search** | Find similar objects | "Find objects like green trees" |
-| 4 | **Relational Path** | Discover paths between objects | "Path from man to shirt" |
-| 5 | **Negative Constraints** | Find images with/without objects | "Images with man but no woman" |
-| 6 | **Comparative** | Compare object distributions | "More white walls or white beds?" |
-| 7 | **Hierarchical** | Explore category hierarchies | "All furniture types" |
-| 8 | **Anomaly Detection** | Find unusual relations | "Dogs on tables" |
-| 9 | **Multi-Attribute** | Complex attribute combinations | "Red plastic cups" |
-
-## 📈 Performance Statistics
-
-### Full Dataset (74,942 images)
-
-```
-Nodes:              1,233,453
-  ├── Instance:     1,231,134  (99.8%)
-  ├── Concept:          1,702  (0.14%)
-  └── Attribute:          617  (0.05%)
-
-Edges:              5,634,778
-  ├── instance_of:  1,231,134  (21.9%)
-  ├── has_attribute:  675,340  (12.0%)
-  └── semantic_rel: 3,795,907  (67.4%)
-
-Build Time:            ~25 seconds
-Query Time:            <1 second/query
-Memory Usage:          2-3 GB RAM
-```
-
-### Scaling Comparison
-
-| Scale | Images | Nodes | Edges | File Size | Build Time |
-|-------|--------|-------|-------|-----------|------------|
-| 1K | 1,000 | 17,463 | 72,713 | 6.15 MB | ~1s |
-| 10K | 10,000 | 164,585 | 738,736 | 61.86 MB | ~5s |
-| Full | 74,942 | 1,233,453 | 5,634,778 | 470.61 MB | ~25s |
-
-## 🏗️ Architecture
-
-### LightRAG 2-Tier Structure
-
-```
-┌─────────────────────────────────────────────────────────┐
-│                    Global Level                         │
-│  ┌──────────────┐           ┌──────────────┐          │
-│  │   Concept    │           │  Attribute   │          │
-│  │   Nodes      │           │    Nodes     │          │
-│  └──────┬───────┘           └──────┬───────┘          │
-│         │ instance_of              │ has_attribute     │
-└─────────┼──────────────────────────┼───────────────────┘
-          │                          │
-┌─────────┴──────────────────────────┴───────────────────┐
-│                  Instance Level                         │
-│  ┌──────────┐   semantic    ┌──────────┐              │
-│  │ Object 1 │ ────────────→ │ Object 2 │              │
-│  │  (car)   │   relation    │ (street) │              │
-│  └──────────┘               └──────────┘              │
-│        Image: 2417431.jpg                              │
-└─────────────────────────────────────────────────────────┘
-```
-
-### Edge Types
-
-- **instance_of**: Links instance nodes to concept nodes
-- **has_attribute**: Links instance nodes to attribute nodes
-- **semantic_relation**: Links related instance nodes (on, near, wearing, etc.)
-
-## 💡 Example Queries
-
-### Natural Language Examples
-
-```bash
-# Entity Search
-"Find all red cars"
-"Show me large green trees"
-
-# Statistical
-"What is the probability of finding a shirt near a man?"
-"How often do windows appear near buildings?"
-
-# Similarity
-"Find objects similar to white shirts"
-
-# Relational Paths
-"Show paths between man and shirt"
-"How is plate connected to table?"
-
-# Negative Constraints
-"Find images with man but no woman"
-"Show images with tree but no car"
-
-# Comparative
-"Compare white walls vs white beds"
-"Which is more common: chair in kitchen or chair in living room?"
-
-# Hierarchical
-"Show all types of furniture"
-"List all electronic devices"
-
-# Anomaly Detection
-"Find unusual cases of dog on table"
-
-# Multi-Attribute
-"Find red plastic cups"
-"Show tall men wearing black shirts"
-```
-
-## 🛠️ Development
-
-### Running Tests
-
-```bash
-# Test all 9 query types
-python scripts/test_all_queries.py --scale 10k
-
-# Test specific query type
-python src/gqa_reasoning_engine.py --scale 10k --demo part1
-```
-
-### Building Custom Graphs
+### Natural Language Queries
 
 ```python
-from src.gqa_lightrag_builder import GQALightRAGGraphBuilder
+from lightrag_gqa.basic_queries import QueryInterface
 
-# Initialize builder
-builder = GQALightRAGGraphBuilder(
-    scene_graphs_dir="sceneGraphs",
-    output_dir="experiments"
+# Initialize interface
+interface = QueryInterface(scale='10k')
+
+# Execute natural language query
+response = interface.execute_natural_language_query(
+    nl_query="Find all images with dogs wearing hats",
+    limit=10
 )
 
-# Load custom data
-scene_graphs = builder.load_scene_graphs(max_images=5000)
-
-# Build graph
-graph = builder.build_graph(scene_graphs)
-
-# Save to custom location
-builder.save_graph("experiments/custom/my_graph.gpickle")
+print(response.formatted_output)
 ```
+
+## 📈 Performance
+
+| Scale | Nodes | Edges | Build Time | Query Time (avg) | Memory |
+|-------|-------|-------|------------|------------------|--------|
+| 1K | 16,458 | 73,873 | ~30s | <50ms | ~1GB |
+| 10K | 164,585 | 738,736 | ~5min | <100ms | ~3GB |
+| Full | 1.2M+ | 5.5M+ | ~40min | <200ms | ~8GB |
+
+## 🔬 Evaluation
+
+The system includes comprehensive evaluation:
+
+```bash
+# Run full evaluation suite
+lightrag-gqa-eval
+
+# Results saved to: evaluation_v0_1/results/
+```
+
+**Latest Results (10K scale)**:
+- MRR: 0.952
+- NDCG@10: 0.890
+- MAP: 0.904
+- Advanced queries: 88.7% success rate
 
 ## 📚 Documentation
 
-- [Full Dataset Results](experiments/full/README.md) - Detailed results and statistics
-- [API Documentation](docs/API.md) - Complete API reference (coming soon)
-- [Query Examples](docs/QUERIES.md) - Comprehensive query examples (coming soon)
+- **Basic Queries**: See inline docstrings in `src/lightrag_gqa/basic_queries/`
+- **Advanced Queries**: See inline docstrings in `src/lightrag_gqa/advanced_queries/`
+- **Notebooks**: Interactive demos in `src/lightrag_gqa/advanced_queries/*.ipynb`
+
+## 🛠️ Development
+
+```bash
+# Install in development mode with dev dependencies
+pip install -e ".[dev]"
+
+# Run tests (if available)
+pytest
+
+# Format code
+black src/
+
+# Type checking
+mypy src/
+```
+
+## 📄 Dataset
+
+This project uses the [GQA dataset](https://cs.stanford.edu/people/dorarad/gqa/):
+- Training: 74,942 scene graphs
+- Validation: 10,234 scene graphs
+
+Place scene graph files in `sceneGraphs/`:
+- `train_sceneGraphs.json`
+- `val_sceneGraphs.json`
 
 ## 🤝 Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+Contributions welcome! Please:
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Submit a pull request
 
-## 📄 License
+## 📝 Citation
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+If you use this work, please cite:
+
+```bibtex
+@misc{lightrag-gqa,
+  title={LightRAG-GQA: Multi-Scale Knowledge Graph for Visual Question Answering},
+  author={GQA LightRAG Project},
+  year={2026},
+  howpublished={\url{https://github.com/vinhhna/hybrid_multimodal_retrieval}}
+}
+```
+
+## 📜 License
+
+MIT License - see LICENSE file for details
 
 ## 🙏 Acknowledgments
 
-- **GQA Dataset**: [Visual Reasoning in the Real World](https://cs.stanford.edu/people/dorarad/gqa/)
-- **LightRAG**: Lightweight architecture for knowledge graph reasoning
-- **IT3930E - Project III**: Hanoi University of Science and Technology
-
-## 📧 Contact
-
-**Author**: vinhhna  
-**Repository**: [hybrid_multimodal_retrieval](https://github.com/vinhhna/hybrid_multimodal_retrieval)  
-**Branch**: lightrag-vg150
+- GQA Dataset: Stanford Vision Lab
+- LightRAG Architecture: Inspired by retrieval-augmented generation frameworks
+- NetworkX: Graph algorithms library
 
 ---
 
-**Built with ❤️ for Visual Reasoning Research**
+**Status**: Production-ready ✅  
+**Maintained**: Yes  
+**Python**: 3.8+  
+**Last Updated**: February 2026

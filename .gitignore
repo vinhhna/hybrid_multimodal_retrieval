@@ -24,6 +24,17 @@ wheels/
 .installed.cfg
 *.egg
 
+# Virtual environments
+venv/
+env/
+ENV/
+.venv/
+
+# Artifacts and outputs
+artifacts/
+outputs/
+data/cache/
+
 # PyInstaller
 *.manifest
 *.spec

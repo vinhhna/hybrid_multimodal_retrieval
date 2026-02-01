@@ -44,7 +44,7 @@ class LLMParserStub:
 
         if use_heuristic_fallback:
             try:
-                from lightrag_gqa.basic_queries import NaturalLanguageParser
+                from basic_queries.nl_parser import NaturalLanguageParser
                 self.heuristic_parser = NaturalLanguageParser()
             except ImportError:
                 print("[WARN] Could not import heuristic parser for fallback")
@@ -286,7 +286,7 @@ class HeuristicParserWrapper:
         self.verbose = verbose
 
         try:
-            from lightrag_gqa.basic_queries import NaturalLanguageParser
+            from basic_queries.nl_parser import NaturalLanguageParser
             self.parser = NaturalLanguageParser()
         except ImportError as e:
             raise ImportError(f"Failed to import heuristic parser: {e}")
