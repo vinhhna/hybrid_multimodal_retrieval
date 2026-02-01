@@ -65,8 +65,8 @@ class EngineAdapter:
 
         # Import engine components
         try:
-            from src.gqa_reasoning_engine import GQA_Reasoning_Engine
-            from src.gqa_query_interface import QueryInterface
+            from basic_queries.gqa_reasoning_engine import GQA_Reasoning_Engine
+            from basic_queries.gqa_query_interface import QueryInterface
         except ImportError as e:
             raise ImportError(f"Failed to import engine modules: {e}")
 

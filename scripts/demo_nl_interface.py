@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 # Set UTF-8 encoding for stdout
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
-from src.gqa_query_interface import QueryInterface
+from basic_queries.gqa_query_interface import QueryInterface
 
 def print_separator(char='=', length=80):
     print(char * length)

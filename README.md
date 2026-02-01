@@ -1,6 +1,6 @@
 # GQA LightRAG: Multimodal Knowledge Graph System
 
-A comprehensive Multimodal Knowledge Graph system built on the GQA (Visual Reasoning) dataset using LightRAG architecture. Supports natural language queries in English with 9 distinct query types for visual reasoning tasks.
+A comprehensive Multimodal Knowledge Graph system built on the GQA (Visual Reasoning) dataset using LightRAG architecture. Supports natural language queries in English with **14 distinct query types** (9 basic + 5 advanced) for visual reasoning tasks.
 
 [![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/)
 [![NetworkX](https://img.shields.io/badge/NetworkX-3.0+-green.svg)](https://networkx.org/)
@@ -10,34 +10,74 @@ A comprehensive Multimodal Knowledge Graph system built on the GQA (Visual Reaso
 
 - **Multi-Scale Knowledge Graphs**: Build graphs at 1K, 10K, or full scale (74,942 images)
 - **LightRAG Architecture**: 2-tier structure with Instance and Global levels
-- **9 Query Types**: Entity search, statistical, similarity, relational paths, and more
+- **14 Query Types**: 9 basic query types + 5 advanced reasoning types
 - **Natural Language Interface**: Query in plain English without writing code
-- **Comprehensive Reasoning**: Full reasoning traces for all queries
+- **Advanced Graph Reasoning**: Multi-hop chains, pattern matching, scene comparison, counterfactuals
+- **Comprehensive Reasoning**: Full reasoning traces with step-by-step explanations
 - **Production Ready**: Tested on full GQA dataset with optimized performance
 
 ## 📁 Project Structure
 
 ```
 hybrid_multimodal_retrieval/
-├── src/                          # Core source modules
-│   ├── __init__.py              # Package initialization
+├── basic_queries/               # 📦 9 Standard Query Types
+│   ├── __init__.py             
+│   ├── README.md                # Documentation for basic queries
 │   ├── gqa_lightrag_builder.py  # Multi-scale KG builder
-│   ├── gqa_reasoning_engine.py  # Query engine (9 types)
+│   ├── gqa_reasoning_engine.py  # Basic query engine (9 types)
 │   ├── gqa_nl_parser.py         # Natural language parser
 │   └── gqa_query_interface.py   # CLI and interactive interface
-├── scripts/                      # Demo and test scripts
-│   ├── demo_nl_interface.py     # Comprehensive demo
-│   ├── test_all_queries.py      # Automated testing
-│   └── run_demo_and_save.py     # UTF-8 demo wrapper
-├── experiments/                  # Saved knowledge graphs
-│   ├── sample_1k/               # 1,000 image graph (6.15 MB)
-│   ├── sample_10k/              # 10,000 image graph (61.86 MB)
-│   └── full/                    # 74,942 image graph (470.61 MB)
-├── sceneGraphs/                 # GQA dataset files
+│
+├── advanced_queries/            # 🧠 5 Advanced Reasoning Types
+│   ├── __init__.py             
+│   ├── README.md                # Documentation for advanced queries
+│   ├── advanced_reasoning_engine.py  # Advanced reasoning engine
+│   ├── demo_advanced_reasoning.ipynb # Interactive demos
+│   └── evaluation_advanced_reasoning.ipynb # Comprehensive evaluation
+│
+├── scripts/                     # Demo and test scripts
+│   ├── demo_nl_interface.py    # Comprehensive demo
+│   ├── test_all_queries.py     # Automated testing
+│   └── run_demo_and_save.py    # UTF-8 demo wrapper
+│
+├── evaluation_v0_1/            # Evaluation framework (CQR-based)
+│   ├── run_evaluation.py       # Main evaluation runner
+│   ├── configs/                # Evaluation configurations
+│   └── results/                # Evaluation results
+│
+├── experiments/                 # Saved knowledge graphs
+│   ├── sample_1k/              # 1,000 image graph (6.15 MB)
+│   ├── sample_10k/             # 10,000 image graph (61.86 MB)
+│   └── full/                   # 74,942 image graph (470.61 MB)
+│
+├── sceneGraphs/                # GQA dataset files
 │   ├── train_sceneGraphs.json
 │   └── val_sceneGraphs.json
-└── data/                        # Output and cache directory
+│
+└── data/                       # Output and cache directory
 ```
+
+## 📊 Query Types Overview
+
+### Basic Queries (9 types)
+See [`basic_queries/README.md`](basic_queries/README.md) for details:
+1. **Entity Search** - Find entities by concept/attributes
+2. **Statistical Queries** - Count, aggregate
+3. **Similarity & Pattern Matching** - Semantic similarity
+4. **Relational Path Discovery** - Find connections
+5. **Negative Constraints** - NOT queries
+6. **Comparative Queries** - Entity comparisons
+7. **Hierarchical Queries** - Concept hierarchies
+8. **Anomaly Detection** - Unusual patterns
+9. **Visual-Attribute Constraints** - Complex constraints
+
+### Advanced Queries (5 types)
+See [`advanced_queries/README.md`](advanced_queries/README.md) for details:
+1. **Chain Reasoning** - Multi-hop traversal with constraints
+2. **Pattern Matching** - Subgraph isomorphism
+3. **Scene Comparison** - Structural similarity analysis
+4. **Counterfactual Reasoning** - What-if hypothetical queries
+5. **Centrality Queries** - Node importance metrics
 
 ## 🚀 Quick Start
 

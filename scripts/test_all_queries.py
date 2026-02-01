@@ -7,7 +7,7 @@ from pathlib import Path
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.gqa_query_interface import QueryInterface
+from basic_queries.gqa_query_interface import QueryInterface
 
 def main():
     interface = QueryInterface(scale='10k')
