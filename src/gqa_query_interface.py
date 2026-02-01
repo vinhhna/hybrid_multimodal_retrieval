@@ -13,10 +13,9 @@ Usage:
 """
 
 import argparse
-import sys
 import json
 from typing import Dict, Any, Optional, List
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 
 from .gqa_nl_parser import NaturalLanguageParser, ParseResult, QueryType
 from .gqa_reasoning_engine import GQA_Reasoning_Engine, ReasoningResult
@@ -225,7 +224,7 @@ class QueryInterface:
             if params.get('find_rare_relations'):
                 return self.engine.find_anomalies(
                     min_frequency=2,
-                    limit=params.get('top_n', limit)  # Use top_n if specified in query, otherwise use limit parameter
+                    limit=params.get('top_n', limit)  # Use top_n if specified in a query, otherwise use limit parameter
                 )
             else:
                 return self.engine.find_specific_anomaly(
@@ -251,7 +250,7 @@ class QueryInterface:
                     limit=limit
                 )
         
-        # Default: return empty result
+        # Default: return an empty result
         return ReasoningResult(
             query_type="unknown",
             question=parse_result.original_query,
@@ -319,25 +318,25 @@ class QueryInterface:
                 print(f"  - {example}")
         
         print("\n" + "=" * 70)
-    
+
     def _print_response(self, response: QueryResponse):
         """Print query response in a readable format"""
         print("\n" + "=" * 70)
         print("QUERY RESULTS")
         print("=" * 70)
-        
+
         print(f"\nQuery Type: {response.query_type.upper().replace('_', ' ')}")
         print(f"Parse Confidence: {response.parse_confidence:.2f}")
         print(f"Parsed Parameters: {json.dumps(response.parsed_params, indent=2)}")
-        
+
         if not response.success:
             print(f"\n[ERROR] {response.error_message}")
             return
-        
+
         print("\n--- REASONING TRACE ---")
         for i, step in enumerate(response.reasoning_trace, 1):
             print(f"  {step}")
-        
+
         print("\n--- RESULTS ---")
         if response.results is None:
             print("  No results found.")
@@ -350,7 +349,7 @@ class QueryInterface:
                     if isinstance(item, dict):
                         # Compact display
                         display = {k: v for k, v in item.items() if k in [
-                            'node_id', 'image_id', 'name', 'attributes', 
+                            'node_id', 'image_id', 'name', 'attributes',
                             'count', 'probability', 'path', 'relation'
                         ]}
                         print(f"  {i}. {display}")
@@ -364,7 +363,7 @@ class QueryInterface:
                     print(f"  {key}: {value['count']} instances")
                 elif isinstance(value, (int, float, str)):
                     print(f"  {key}: {value}")
-        
+
         print("\n--- METADATA ---")
         meta = response.metadata
         if meta:
@@ -376,7 +375,7 @@ class QueryInterface:
                     print(f"  {key}: {{{keys[0]}: ..., ...}}")
                 else:
                     print(f"  {key}: {value}")
-        
+
         print("\n" + "=" * 70)
 
 

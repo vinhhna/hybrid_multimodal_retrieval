@@ -17,3 +17,5 @@ pandas>=2.0.0
 
 # Optional: Visualization tools
 matplotlib>=3.7.0
+
+pyyaml

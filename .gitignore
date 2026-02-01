@@ -81,6 +81,12 @@ sceneGraphs/train_sceneGraphs.json
 sceneGraphs/val_sceneGraphs.json
 experiments/*/gqa_lightrag.gpickle
 
+# Evaluation results and generated data
+evaluation_v0_1/results/
+evaluation_v0_1/data/suites/
+*.csv
+*.jsonl
+
 # Graph artifacts
 output/
 graphs/
@@ -90,3 +96,15 @@ graphs/
 # OS
 .DS_Store
 Thumbs.db
+
+# Project-specific exclusions
+questions1.2/
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+*.temp
+.cache/

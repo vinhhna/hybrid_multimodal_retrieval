@@ -15,9 +15,9 @@ Query Types:
 """
 
 import re
-from dataclasses import dataclass, field
-from typing import List, Dict, Any, Optional, Tuple
+from dataclasses import dataclass
 from enum import Enum
+from typing import List, Dict, Any, Optional, Tuple
 
 
 class QueryType(Enum):
@@ -362,7 +362,7 @@ class NaturalLanguageParser:
         return None
     
     def parse(self, query: str) -> ParseResult:
-        """Parse a natural language query and return structured result"""
+        """Parse a natural language query and return a structured result"""
         original_query = query
         normalized = self.normalize_query(query)
         
