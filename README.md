@@ -22,7 +22,6 @@ hybrid_multimodal_retrieval/
 ├── src/                          # Core source modules
 │   ├── __init__.py              # Package initialization
 │   ├── gqa_lightrag_builder.py  # Multi-scale KG builder
-│   ├── gqa_lightrag_kg.py       # Legacy KG builder
 │   ├── gqa_reasoning_engine.py  # Query engine (9 types)
 │   ├── gqa_nl_parser.py         # Natural language parser
 │   └── gqa_query_interface.py   # CLI and interactive interface
