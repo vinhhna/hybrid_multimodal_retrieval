@@ -6,13 +6,23 @@ Master script that runs the complete evaluation pipeline:
 2. Evaluate engine with GOLD CQR
 3. Evaluate parsers (NL -> CQR)
 4. Evaluate end-to-end (NL -> Parser -> Engine)
-5. Generate summary reports
+5. Evaluate baselines (naive_scan, relation_walk, parser_trivial)
+6. Evaluate advanced queries (Types 6-9)
+7. Generate summary reports
+
+Supports:
+- Data splits (train/val/test) - Task A
+- Set-based metrics for unranked outputs - Task B
+- Baseline methods for comparison - Task C
+- Advanced query evaluation - Task D
+- Timestamped outputs for reproducibility
 
 Usage:
     python run_all.py --config evaluation_v0_1/configs/eval.yaml
     python run_all.py --config evaluation_v0_1/configs/eval.yaml --verbose
-    python run_all.py --config evaluation_v0_1/configs/eval.yaml --regen
-    python run_all.py --config evaluation_v0_1/configs/eval.yaml --step engine
+    python run_all.py --config evaluation_v0_1/configs/eval.yaml --split val
+    python run_all.py --config evaluation_v0_1/configs/eval.yaml --method baseline_naive_scan
+    python run_all.py --config evaluation_v0_1/configs/eval.yaml --step advanced
 """
 
 import sys
@@ -145,6 +155,197 @@ def run_evaluate_e2e(config: Dict[str, Any], verbose: bool = False) -> Dict[str,
     results_dir = REPO_ROOT / paths.get("results_dir", "evaluation_v0_1/results")
 
     return eval_e2e_module.evaluate_all_suites(config, str(suites_dir), str(results_dir), verbose=verbose)
+
+
+def run_evaluate_baselines(config: Dict[str, Any], method: str,
+                           verbose: bool = False) -> Dict[str, Any]:
+    """
+    Run baseline evaluation step.
+    
+    Args:
+        config: Configuration dictionary
+        method: Baseline method name (baseline_naive_scan, baseline_relation_walk)
+        verbose: Whether to print progress
+        
+    Returns:
+        Baseline evaluation results
+    """
+    from evaluation_v0_1.scripts.baselines import (
+        BaselineAdapter, load_scene_graphs_for_baseline
+    )
+    from evaluation_v0_1.scripts.evaluate_engine import EngineEvaluator, save_results
+    from evaluation_v0_1.scripts.cqr import load_suite
+    
+    if verbose:
+        print("\n" + "="*60)
+        print(f"[Run All] Baseline Evaluation: {method}")
+        print("="*60)
+    
+    paths = config.get("paths", {})
+    suites_dir = REPO_ROOT / paths.get("suites_dir", "evaluation_v0_1/data/suites")
+    results_dir = REPO_ROOT / paths.get("results_dir", "evaluation_v0_1/results")
+    
+    # Determine scene graphs path based on split
+    split = config.get("data_splits", {}).get("active_split", "train")
+    if split == "val":
+        sg_path = paths.get("scenegraphs_val", "sceneGraphs/val_sceneGraphs.json")
+    else:
+        sg_path = paths.get("scenegraphs_train", "sceneGraphs/train_sceneGraphs.json")
+    
+    full_sg_path = REPO_ROOT / sg_path
+    
+    if not full_sg_path.exists():
+        print(f"[WARN] Scene graphs not found: {full_sg_path}")
+        return {"error": f"Scene graphs not found: {sg_path}"}
+    
+    # Load scene graphs
+    scene_graphs = load_scene_graphs_for_baseline(str(full_sg_path))
+    
+    # Create baseline adapter
+    adapter = BaselineAdapter(
+        method=method,
+        scene_graphs=scene_graphs,
+        config=config,
+        verbose=verbose
+    )
+    
+    # Find appropriate suites for this baseline
+    suite_files = list(Path(suites_dir).glob("suite_*.jsonl"))
+    
+    all_results = {}
+    
+    for suite_file in suite_files:
+        suite_name = suite_file.stem
+        
+        # Skip suites incompatible with this baseline
+        if method == "baseline_naive_scan":
+            # Naive scan works on ranked_set queries
+            if "scalar" in suite_name or "path" in suite_name or "subgraph" in suite_name:
+                continue
+        elif method == "baseline_relation_walk":
+            # Relation walk works on path queries
+            if "path" not in suite_name:
+                continue
+        
+        if verbose:
+            print(f"\n[Baseline] Evaluating {suite_name} with {method}")
+        
+        # Load suite and evaluate
+        suite = load_suite(str(suite_file))
+        
+        if not suite:
+            continue
+        
+        # Simple evaluation loop
+        from evaluation_v0_1.scripts.metrics import (
+            compute_set_metrics, aggregate_set_metrics,
+            compute_path_metrics, aggregate_path_metrics
+        )
+        
+        per_query_results = []
+        k_values = config.get("evaluation", {}).get("k_values", [1, 5, 10, 20, 50])
+        
+        for item in suite:
+            result = adapter.execute(item.cqr_gold)
+            
+            query_result = {
+                "query_id": item.query_id,
+                "success": result.success,
+                "metrics": {}
+            }
+            
+            if result.success:
+                if "path" in suite_name:
+                    metrics = compute_path_metrics(result.data, item.gold_output.data)
+                else:
+                    predicted = result.data.get("image_ids", [])
+                    gold = set(item.gold_output.data.get("image_ids", []))
+                    metrics = compute_set_metrics(predicted, gold, k_values)
+                
+                query_result["metrics"] = metrics
+            
+            per_query_results.append(query_result)
+        
+        # Aggregate
+        valid_metrics = [r["metrics"] for r in per_query_results if r.get("success") and r.get("metrics")]
+        
+        if valid_metrics:
+            if "path" in suite_name:
+                aggregated = aggregate_path_metrics(valid_metrics)
+            else:
+                aggregated = aggregate_set_metrics(valid_metrics, k_values)
+        else:
+            aggregated = {"count": 0}
+        
+        aggregated["method"] = method
+        aggregated["success_rate"] = len(valid_metrics) / len(per_query_results) if per_query_results else 0
+        
+        # Save results
+        baseline_results = {
+            "suite_name": suite_name,
+            "method": method,
+            "count": len(suite),
+            "aggregated": aggregated,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+        result_file = results_dir / f"baseline_{method}_{suite_name}.json"
+        with open(result_file, 'w', encoding='utf-8') as f:
+            json.dump(baseline_results, f, indent=2, default=str)
+        
+        all_results[suite_name] = aggregated
+    
+    return all_results
+
+
+def run_evaluate_advanced(config: Dict[str, Any], verbose: bool = False) -> Dict[str, Any]:
+    """
+    Run advanced query evaluation step.
+    
+    Args:
+        config: Configuration dictionary
+        verbose: Whether to print progress
+        
+    Returns:
+        Advanced evaluation results
+    """
+    from evaluation_v0_1.scripts.evaluate_advanced import evaluate_all_advanced_suites
+    
+    if verbose:
+        print("\n" + "="*60)
+        print("[Run All] Step 6: Advanced Query Evaluation (Types 6-9)")
+        print("="*60)
+    
+    paths = config.get("paths", {})
+    results_dir = REPO_ROOT / paths.get("results_dir", "evaluation_v0_1/results")
+    
+    return evaluate_all_advanced_suites(config, str(results_dir), verbose=verbose)
+
+
+def get_output_dir(config: Dict[str, Any], split: str, method: str) -> Path:
+    """
+    Get output directory with optional timestamping.
+    
+    Args:
+        config: Configuration dictionary
+        split: Data split (train/val/test)
+        method: Method name (main/baseline_*)
+        
+    Returns:
+        Path to output directory
+    """
+    paths = config.get("paths", {})
+    reproducibility = config.get("reproducibility", {})
+    
+    base_dir = REPO_ROOT / paths.get("artifacts_dir", "artifacts")
+    
+    if reproducibility.get("timestamped_outputs", False):
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        pattern = reproducibility.get("output_pattern", "{timestamp}_{split}_{method}")
+        dir_name = pattern.format(timestamp=timestamp, split=split, method=method)
+        return base_dir / dir_name
+    else:
+        return REPO_ROOT / paths.get("results_dir", "evaluation_v0_1/results")
 
 
 def generate_summary(config: Dict[str, Any],
@@ -337,14 +538,32 @@ def main():
     )
     parser.add_argument(
         "--step",
-        choices=["generate", "engine", "parser", "e2e", "all"],
+        choices=["generate", "engine", "parser", "e2e", "baseline", "advanced", "all"],
         default="all",
         help="Run specific step only (default: all)"
+    )
+    parser.add_argument(
+        "--split",
+        choices=["train", "val", "test", "train+val"],
+        default=None,
+        help="Data split to evaluate on (overrides config)"
+    )
+    parser.add_argument(
+        "--method",
+        choices=["main", "baseline_naive_scan", "baseline_relation_walk", "baseline_parser_trivial"],
+        default=None,
+        help="Method to evaluate (overrides config)"
     )
     parser.add_argument(
         "--verbose", "-v",
         action="store_true",
         help="Print detailed progress"
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="Random seed for reproducibility (overrides config)"
     )
 
     args = parser.parse_args()
@@ -359,30 +578,66 @@ def main():
         sys.exit(1)
 
     config = load_config(str(config_path))
+    
+    # Apply command-line overrides
+    if args.split:
+        if "data_splits" not in config:
+            config["data_splits"] = {}
+        config["data_splits"]["active_split"] = args.split
+    
+    if args.method:
+        if "method" not in config:
+            config["method"] = {}
+        config["method"]["active"] = args.method
+    
+    if args.seed is not None:
+        config["random_seed"] = args.seed
+        if "reproducibility" not in config:
+            config["reproducibility"] = {}
+        config["reproducibility"]["random_seed"] = args.seed
+    
+    # Set random seed for reproducibility
+    import random
+    seed = config.get("reproducibility", {}).get("random_seed", config.get("random_seed", 1337))
+    random.seed(seed)
+    
+    # Determine active split and method
+    active_split = config.get("data_splits", {}).get("active_split", "train")
+    active_method = config.get("method", {}).get("active", "main")
 
     print("\n" + "="*60)
     print("LightRAG-GQA Evaluation Framework v0.1")
     print("="*60)
     print(f"\nConfig: {config_path}")
+    print(f"Split: {active_split}")
+    print(f"Method: {active_method}")
+    print(f"Seed: {seed}")
     print(f"Verbose: {args.verbose}")
     print(f"Step: {args.step}")
 
     paths = config.get("paths", {})
-    results_dir = REPO_ROOT / paths.get("results_dir", "evaluation_v0_1/results")
+    
+    # Get output directory (with optional timestamping)
+    results_dir = get_output_dir(config, active_split, active_method)
+    results_dir.mkdir(parents=True, exist_ok=True)
+    
+    print(f"Results: {results_dir}")
 
     # Initialize results
     suite_results = {}
     engine_results = {}
     parser_results = {}
     e2e_results = {}
+    baseline_results = {}
+    advanced_results = {}
 
     try:
         # Step 1: Generate suites
         if args.step in ("generate", "all"):
             suite_results = run_generate_suites(config, args.verbose, args.regen)
 
-        # Step 2: Engine evaluation
-        if args.step in ("engine", "all"):
+        # Step 2: Engine evaluation (main method)
+        if args.step in ("engine", "all") and active_method == "main":
             engine_results = run_evaluate_engine(config, args.verbose)
 
         # Step 3: Parser evaluation
@@ -392,6 +647,26 @@ def main():
         # Step 4: E2E evaluation
         if args.step in ("e2e", "all"):
             e2e_results = run_evaluate_e2e(config, args.verbose)
+        
+        # Step 5: Baseline evaluation
+        if args.step in ("baseline", "all") or active_method.startswith("baseline_"):
+            if active_method.startswith("baseline_"):
+                baseline_results = run_evaluate_baselines(config, active_method, args.verbose)
+            elif args.step == "baseline":
+                # Run all enabled baselines
+                baseline_config = config.get("method", {}).get("baselines", {})
+                for baseline_name, bl_config in baseline_config.items():
+                    if bl_config.get("enabled", False):
+                        method_name = f"baseline_{baseline_name}"
+                        if args.verbose:
+                            print(f"\n[Run All] Running baseline: {method_name}")
+                        baseline_results[method_name] = run_evaluate_baselines(
+                            config, method_name, args.verbose
+                        )
+        
+        # Step 6: Advanced query evaluation
+        if args.step in ("advanced", "all"):
+            advanced_results = run_evaluate_advanced(config, args.verbose)
 
         # Generate summary if running all or multiple steps
         if args.step == "all":
@@ -402,12 +677,43 @@ def main():
             summary = generate_summary(
                 config, suite_results, engine_results, parser_results, e2e_results
             )
+            
+            # Add baseline and advanced results to summary
+            summary["baseline_evaluation"] = baseline_results
+            summary["advanced_evaluation"] = advanced_results
+            summary["data_split"] = active_split
+            summary["method"] = active_method
+            summary["random_seed"] = seed
+            
             save_summary(summary, str(results_dir))
 
         print("\n" + "="*60)
         print("[Run All] Evaluation Complete!")
         print("="*60)
         print(f"\nResults saved to: {results_dir}")
+        
+        # Print quick summary
+        if engine_results:
+            print("\nEngine Evaluation Summary:")
+            for suite_name, data in engine_results.items():
+                if isinstance(data, dict) and "aggregated" in data:
+                    agg = data["aggregated"]
+                    print(f"  {suite_name}: F1={agg.get('f1', agg.get('node_f1', 'N/A')):.3f}")
+        
+        if baseline_results:
+            print("\nBaseline Evaluation Summary:")
+            for method, results in baseline_results.items():
+                if isinstance(results, dict):
+                    for suite, agg in results.items():
+                        if isinstance(agg, dict):
+                            print(f"  {method}/{suite}: F1={agg.get('f1', 'N/A')}")
+        
+        if advanced_results and advanced_results.get("status") != "disabled":
+            print("\nAdvanced Query Evaluation Summary:")
+            for qtype, data in advanced_results.items():
+                if isinstance(data, dict) and "aggregated" in data:
+                    agg = data["aggregated"]
+                    print(f"  {qtype}: success_rate={agg.get('success_rate', 0):.3f}")
 
     except Exception as e:
         print(f"\n[ERROR] Evaluation failed: {e}")

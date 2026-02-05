@@ -1,7 +1,38 @@
 # Evaluation Framework v0.1 Configuration
 # ==========================================
+# 
+# This configuration supports academically defensible evaluation with:
+# - Train/val/test data splits
+# - Set-based metrics (no invalid ranking metrics for unranked outputs)
+# - Baseline methods for comparison
+# - Reproducibility (seeded random, timestamped outputs)
 
-# Paths configuration
+# =============================================================================
+# DATA SPLITS CONFIGURATION (Task A)
+# =============================================================================
+data_splits:
+  # Active split(s) for evaluation
+  # Options: "train", "val", "test", "train+val", "all"
+  active_split: "val"
+  
+  # Scene graph paths per split
+  train:
+    scene_graphs: "sceneGraphs/train_sceneGraphs.json"
+    # Knowledge graph built from this split
+    kg_graph_path: "experiments/sample_10k/gqa_lightrag.gpickle"
+  
+  val:
+    scene_graphs: "sceneGraphs/val_sceneGraphs.json"
+    # For val, we can still use the train KG (cross-split evaluation)
+    # or build a val-specific KG if available
+    kg_graph_path: "experiments/sample_10k/gqa_lightrag.gpickle"
+  
+  test:
+    # Test split may not have scene graphs (GQA test is blind)
+    scene_graphs: null
+    kg_graph_path: null
+
+# Legacy paths (for backward compatibility)
 paths:
   # Scene graphs for ground truth (DO NOT use questions1.2/)
   scenegraphs_train: "sceneGraphs/train_sceneGraphs.json"
@@ -16,9 +47,15 @@ paths:
   # Output directories
   suites_dir: "evaluation_v0_1/data/suites"
   results_dir: "evaluation_v0_1/results"
+  
+  # Artifacts directory (timestamped outputs)
+  artifacts_dir: "artifacts"
 
   # Normalization data
   synonym_map: "evaluation_v0_1/data/synonym_map.json"
+  
+  # Advanced query suites
+  advanced_suites_dir: "evaluation_v0_1/data/suites/advanced_toy"
 
 # Suite generation settings
 suite_sizes:
@@ -27,19 +64,104 @@ suite_sizes:
   scalar_stats_n: 200
   path_n: 200
   subgraph_n: 200
+  # Advanced query suites (smaller, manually curated)
+  advanced_chain_n: 20
+  advanced_pattern_n: 20
+  advanced_scene_comparison_n: 20
+  advanced_counterfactual_n: 20
 
-# Evaluation settings
+# =============================================================================
+# METHOD SELECTION (Task C - Baselines)
+# =============================================================================
+method:
+  # Active method for evaluation
+  # Options: "main", "baseline_naive_scan", "baseline_relation_walk", "baseline_parser_trivial"
+  active: "main"
+  
+  # Baseline configurations
+  baselines:
+    naive_scan:
+      # Naive scan baseline: iterate through scene graphs without global concept index
+      enabled: true
+      description: "Direct scene graph scan without knowledge graph"
+    
+    relation_walk:
+      # Simple relation walk baseline: traverse within-image relations only
+      enabled: true
+      max_hops: 3
+      description: "Within-image relation traversal with bounded hops"
+    
+    parser_trivial:
+      # Trivial rule-based parser: simple regex patterns
+      enabled: true
+      description: "Minimal regex-based NL parser covering subset of patterns"
+
+# =============================================================================
+# METRICS CONFIGURATION (Task B - Metrics Validity)
+# =============================================================================
+metrics:
+  # Query output semantics (determines valid metrics)
+  # "unranked_set" -> EM, P, R, F1, Jaccard (NO NDCG/MRR/MAP)
+  # "ranked_list"  -> P@k, R@k, NDCG@k, MRR, MAP (requires scoring function)
+  output_semantics:
+    ranked_entity_attr: "unranked_set"  # Entity search returns sets, not ranked
+    ranked_negative: "unranked_set"     # Negative constraints returns sets
+    scalar_stats: "scalar"              # Scalar values
+    path: "path"                        # Path existence/structure
+    subgraph: "subgraph"                # Subgraph nodes/edges
+  
+  # Set metrics (for unranked_set outputs)
+  set_metrics:
+    - exact_match
+    - precision
+    - recall
+    - f1
+    - jaccard
+  
+  # Scalar metrics
+  scalar_metrics:
+    - mae
+    - rmse
+    - spearman
+  
+  # Path metrics
+  path_metrics:
+    - validity_rate
+    - hop_accuracy
+    - coverage
+  
+  # Subgraph metrics
+  subgraph_metrics:
+    - node_recall
+    - edge_recall
+    - precision
+    - f1
+
+# Legacy evaluation settings (for backward compatibility)
 evaluation:
-  # k values for ranking metrics (P@k, R@k, NDCG@k)
+  # k values for set metrics at k (P@k means precision on top-k, valid for sets)
   k_values: [1, 5, 10, 20, 50]
 
-  # Default limit for ranked queries
+  # Default limit for queries
   default_k: 50
 
   # Maximum hops for path queries
   max_path_hops: 3
 
-# Reproducibility
+# =============================================================================
+# REPRODUCIBILITY (Required)
+# =============================================================================
+reproducibility:
+  # Random seed for deterministic sampling
+  random_seed: 1337
+  
+  # Enable timestamped output folders
+  timestamped_outputs: true
+  
+  # Output format: "artifacts/{timestamp}_{split}_{method}/"
+  output_pattern: "{timestamp}_{split}_{method}"
+
+# Legacy random_seed (for backward compatibility)
 random_seed: 1337
 
 # Negative constraint safeguards
@@ -96,4 +218,34 @@ parsers:
     enabled: true
     # When real LLM is integrated, add API settings here
     fallback_to_heuristic: true
+
+# =============================================================================
+# ADVANCED QUERY EVALUATION (Task D)
+# =============================================================================
+advanced_queries:
+  # Enable advanced query evaluation
+  enabled: true
+  
+  # Query types 6-9
+  types:
+    chain_reasoning:
+      enabled: true
+      suite_path: "evaluation_v0_1/data/suites/advanced_toy/suite_chain_reasoning.json"
+    pattern_matching:
+      enabled: true
+      suite_path: "evaluation_v0_1/data/suites/advanced_toy/suite_pattern_matching.json"
+    scene_comparison:
+      enabled: true
+      suite_path: "evaluation_v0_1/data/suites/advanced_toy/suite_scene_comparison.json"
+    counterfactual:
+      enabled: true
+      suite_path: "evaluation_v0_1/data/suites/advanced_toy/suite_counterfactual.json"
+  
+  # Trace quality rubric (placeholder - requires manual review)
+  trace_rubric:
+    enabled: false  # Mark as future work
+    criteria:
+      completeness: "Mentions all key reasoning steps"
+      correctness: "Intermediate reasoning is logically valid"
+      clarity: "Trace fields are structured and readable"
 

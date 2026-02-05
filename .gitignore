@@ -29,6 +29,7 @@ venv/
 env/
 ENV/
 .venv/
+.env/
 
 # Artifacts and outputs
 artifacts/
@@ -90,9 +91,13 @@ image_data.json
 # GQA Data files (large JSON and pickle files)
 sceneGraphs/train_sceneGraphs.json
 sceneGraphs/val_sceneGraphs.json
-experiments/*/gqa_lightrag.gpickle
 
-# Evaluation results and generated data
+# Experiment outputs and built graphs (large pickle files)
+experiments/*/gqa_lightrag.gpickle
+experiments/sample_*/
+experiments/full/
+
+# Evaluation results and generated data (can be regenerated)
 evaluation_v0_1/results/
 evaluation_v0_1/data/suites/
 *.csv

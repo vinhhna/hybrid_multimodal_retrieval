@@ -179,6 +179,199 @@ def compute_ranked_metrics(predicted: List[str], gold: Set[str],
 
 
 # =============================================================================
+# SET-BASED METRICS (for unranked outputs - Task B)
+# =============================================================================
+# These metrics are valid for query types that return sets without meaningful
+# ordering. They do NOT assume ranking, making them appropriate for:
+# - Entity search (returns matching images, order not guaranteed)
+# - Negative constraints (returns filtered set)
+# See evaluation_protocol.md for justification.
+
+def exact_match(predicted: Set[str], gold: Set[str]) -> float:
+    """
+    Exact Match (EM): 1 if sets are identical, 0 otherwise.
+    
+    This is the strictest set metric - requires perfect match.
+    
+    Args:
+        predicted: Set of predicted items
+        gold: Set of gold items
+        
+    Returns:
+        1.0 if exact match, 0.0 otherwise
+    """
+    return 1.0 if predicted == gold else 0.0
+
+
+def jaccard_similarity(predicted: Set[str], gold: Set[str]) -> float:
+    """
+    Jaccard Similarity (IoU): |intersection| / |union|
+    
+    Measures overlap between predicted and gold sets.
+    Symmetric: J(A,B) = J(B,A)
+    
+    Args:
+        predicted: Set of predicted items
+        gold: Set of gold items
+        
+    Returns:
+        Jaccard index in [0, 1]
+    """
+    if not predicted and not gold:
+        return 1.0  # Both empty = perfect match
+    
+    intersection = len(predicted & gold)
+    union = len(predicted | gold)
+    
+    return intersection / union if union > 0 else 0.0
+
+
+def set_precision(predicted: Set[str], gold: Set[str]) -> float:
+    """
+    Precision for sets: |intersection| / |predicted|
+    
+    What fraction of predictions are correct?
+    
+    Args:
+        predicted: Set of predicted items
+        gold: Set of gold items
+        
+    Returns:
+        Precision in [0, 1]
+    """
+    if not predicted:
+        return 1.0 if not gold else 0.0
+    return len(predicted & gold) / len(predicted)
+
+
+def set_recall(predicted: Set[str], gold: Set[str]) -> float:
+    """
+    Recall for sets: |intersection| / |gold|
+    
+    What fraction of gold items were retrieved?
+    
+    Args:
+        predicted: Set of predicted items
+        gold: Set of gold items
+        
+    Returns:
+        Recall in [0, 1]
+    """
+    if not gold:
+        return 1.0 if not predicted else 0.0
+    return len(predicted & gold) / len(gold)
+
+
+def set_f1(predicted: Set[str], gold: Set[str]) -> float:
+    """
+    F1 Score for sets: harmonic mean of precision and recall.
+    
+    Balanced measure of set retrieval quality.
+    
+    Args:
+        predicted: Set of predicted items
+        gold: Set of gold items
+        
+    Returns:
+        F1 in [0, 1]
+    """
+    p = set_precision(predicted, gold)
+    r = set_recall(predicted, gold)
+    
+    if p + r == 0:
+        return 0.0
+    return 2 * p * r / (p + r)
+
+
+def compute_set_metrics(predicted: List[str], gold: Set[str],
+                        k_values: Optional[List[int]] = None) -> Dict[str, float]:
+    """
+    Compute SET-BASED metrics for unranked outputs.
+    
+    IMPORTANT: This function should be used instead of compute_ranked_metrics
+    when the output has SET SEMANTICS (order not meaningful).
+    
+    Metrics computed:
+    - exact_match: 1 if sets identical
+    - precision: |intersection| / |predicted|
+    - recall: |intersection| / |gold|
+    - f1: harmonic mean
+    - jaccard: |intersection| / |union|
+    
+    Optionally computes P@k, R@k as "first k" - but these are NOT ranking
+    metrics; they measure performance if we only consider top-k results.
+    
+    Args:
+        predicted: List of predicted items (order ignored for set metrics)
+        gold: Set of gold items
+        k_values: Optional k values for @k metrics
+        
+    Returns:
+        Dictionary of metric_name -> value
+    """
+    pred_set = set(predicted)
+    
+    metrics = {
+        "exact_match": exact_match(pred_set, gold),
+        "precision": set_precision(pred_set, gold),
+        "recall": set_recall(pred_set, gold),
+        "f1": set_f1(pred_set, gold),
+        "jaccard": jaccard_similarity(pred_set, gold),
+        "gold_size": len(gold),
+        "pred_size": len(pred_set)
+    }
+    
+    # @k metrics (still valid for sets - just limits the prediction set)
+    if k_values:
+        for k in k_values:
+            pred_at_k = set(predicted[:k])
+            metrics[f"precision@{k}"] = set_precision(pred_at_k, gold)
+            metrics[f"recall@{k}"] = set_recall(pred_at_k, gold)
+            metrics[f"f1@{k}"] = set_f1(pred_at_k, gold)
+    
+    return metrics
+
+
+def aggregate_set_metrics(results: List[Dict[str, float]],
+                         k_values: Optional[List[int]] = None) -> Dict[str, float]:
+    """
+    Aggregate set metrics across multiple queries.
+    
+    Args:
+        results: List of per-query metric dicts
+        k_values: k values used in metrics
+        
+    Returns:
+        Aggregated metrics
+    """
+    if not results:
+        return {"count": 0}
+    
+    n = len(results)
+    
+    aggregated = {
+        "count": n,
+        "exact_match": sum(r.get("exact_match", 0) for r in results) / n,
+        "precision": sum(r.get("precision", 0) for r in results) / n,
+        "recall": sum(r.get("recall", 0) for r in results) / n,
+        "f1": sum(r.get("f1", 0) for r in results) / n,
+        "jaccard": sum(r.get("jaccard", 0) for r in results) / n,
+    }
+    
+    # @k metrics
+    if k_values:
+        for k in k_values:
+            aggregated[f"precision@{k}"] = sum(
+                r.get(f"precision@{k}", 0) for r in results) / n
+            aggregated[f"recall@{k}"] = sum(
+                r.get(f"recall@{k}", 0) for r in results) / n
+            aggregated[f"f1@{k}"] = sum(
+                r.get(f"f1@{k}", 0) for r in results) / n
+    
+    return aggregated
+
+
+# =============================================================================
 # SCALAR METRICS
 # =============================================================================
 

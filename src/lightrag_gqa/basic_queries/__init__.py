@@ -1,9 +1,12 @@
 """
-Basic Queries - 9 Standard Query Types
+Basic Queries - 5 Standard Query Types
 
-Standard query implementations for entity search, statistics, similarity,
-paths, negative constraints, comparisons, hierarchies, anomalies, and 
-visual-attribute constraints.
+Implements the 5 basic query types for LightRAG-GQA:
+1. Entity Search - Find objects by concept+attributes
+2. Statistical Knowledge - Co-occurrence probabilities
+3. Similarity Search - Find similar attribute profiles
+4. Relational Path - Find graph paths between concepts
+5. Negative Constraints - Find with A but not B
 """
 
 from .reasoning_engine import GQA_Reasoning_Engine

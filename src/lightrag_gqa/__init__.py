@@ -1,13 +1,13 @@
 """
-LightRAG-GQA: Multi-Scale Knowledge Graph System for Visual Question Answering
+LightRAG-GQA: Two-Level Knowledge Graph Reasoning on GQA Scene Graphs
 
-A comprehensive multimodal knowledge graph system built on the GQA dataset using 
-LightRAG architecture. Supports 14 query types (9 basic + 5 advanced) for visual 
-reasoning tasks.
+A knowledge graph system for visual reasoning on the GQA dataset using 
+LightRAG two-level architecture. Implements 9 query types (5 basic + 4 advanced)
+for structured graph queries.
 
 Main modules:
-- basic_queries: Standard 9 query types (entity search, stats, similarity, etc.)
-- advanced_queries: Advanced 5 reasoning types (chain, pattern matching, etc.)
+- basic_queries: 5 basic query types (entity search, stats, similarity, path, negative)
+- advanced_queries: 4 advanced reasoning types (chain, pattern, scene, counterfactual)
 - evaluation: CQR-based evaluation framework
 - datasets: GQA dataset loaders
 - cli: Command-line interface tools
